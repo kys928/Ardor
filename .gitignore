@@ -1,0 +1,65 @@
+
+# ======================
+# Ardor repo hygiene
+# ======================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+build/
+dist/
+**/build/
+**/dist/
+*.spec
+*.toc
+*.pkg
+*.pyz
+base_library.zip
+
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+
+# ======================
+# Ardor repo hygiene
+# ======================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+build/
+dist/
+**/build/
+**/dist/
+*.spec
+*.toc
+*.pkg
+*.pyz
+base_library.zip
+
+# Big generated artifacts
+Praetor/ArdorApp/build/
+Praetor/ArdorApp/dist/
+Praetor/ArdorApp/*.spec
+_internal/
+
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+
+# Visual Studio junk
+.vs/
+*.sqlite
+*.db
+*.db-shm
+*.db-wal
+*.wsuo
+
