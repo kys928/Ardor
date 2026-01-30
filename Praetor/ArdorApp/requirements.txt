@@ -1,7 +1,0 @@
-# Core
-torch>=2.2,<3.0
-tokenizers>=0.14
-tqdm>=4.66
-numpy>=1.23
-# EXE
-pyinstaller>=6,<7
