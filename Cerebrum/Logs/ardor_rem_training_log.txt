@@ -1,7 +1,0 @@
-🌙 REM Consolidation - 2025-07-14 19:40:48
-Epoch 1: Avg Loss = 6.9173
-Epoch 2: Avg Loss = 6.6847
-Epoch 3: Avg Loss = 6.5511
-Epoch 4: Avg Loss = 6.4596
-Epoch 5: Avg Loss = 6.3948
-Epoch 6: Avg Loss = 6.3009
