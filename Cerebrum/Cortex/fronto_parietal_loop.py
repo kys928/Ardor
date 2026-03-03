@@ -1,30 +1,24 @@
-from __future__ import annotations
-
 import torch.nn as nn
-
-from Cerebrum.Cortex.ardor_config import ArdorConfig
-from Cerebrum.Cortex.dorsolateral_prefrontal_cortex import SelfAttention
-
+from dorsolateral_prefrontal_cortex import SelfAttention
 
 class TransformerBlock(nn.Module):
-    def __init__(self, config: ArdorConfig):
+    def __init__(self, hidden_dim, heads, ff_hidden_mult=4, dropout=0.1):
         super().__init__()
-        config.validate()
-        self.cfg = config
-        self.attn = SelfAttention(config)
-        self.norm1 = nn.LayerNorm(config.hidden_size, eps=config.layernorm_eps)
-        self.norm2 = nn.LayerNorm(config.hidden_size, eps=config.layernorm_eps)
-
-        self.ff = nn.Sequential(
-            nn.Linear(config.hidden_size, config.ffn_dim),
+        # pass dropout through so attn/proj drops aren’t stuck at 0.0
+        self.attn  = SelfAttention(hidden_dim, heads, attn_dropout=dropout, proj_dropout=dropout)
+        self.norm1 = nn.LayerNorm(hidden_dim)
+        self.norm2 = nn.LayerNorm(hidden_dim)
+        self.ff    = nn.Sequential(
+            nn.Linear(hidden_dim, ff_hidden_mult * hidden_dim),
             nn.GELU(),
-            nn.Linear(config.ffn_dim, config.hidden_size),
+            nn.Linear(ff_hidden_mult * hidden_dim, hidden_dim),
         )
-        self.resid_drop = nn.Dropout(config.resid_dropout)
+        self.dropout = nn.Dropout(dropout)
+
 
     def forward(self, x, *, mask=None):
         a = self.attn(x, mask=mask)
-        x = self.norm1(x + self.resid_drop(a))
+        x = self.norm1(x + self.dropout(a))
         f = self.ff(x)
-        x = self.norm2(x + self.resid_drop(f))
+        x = self.norm2(x + self.dropout(f))
         return x
