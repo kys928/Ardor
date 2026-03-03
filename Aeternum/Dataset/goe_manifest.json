@@ -1,0 +1,19 @@
+{
+  "name": "goe",
+  "splits": {
+    "train": {
+      "N": 43167,
+      "H": 384
+    },
+    "validation": {
+      "N": 5369,
+      "H": 384
+    },
+    "test": {
+      "N": 5376,
+      "H": 384
+    }
+  },
+  "pool": "mean",
+  "max_len": 256
+}
