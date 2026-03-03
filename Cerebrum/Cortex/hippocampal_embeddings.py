@@ -1,12 +1,23 @@
-# import torch
-# import torch.nn as nn
-#
-# class Embeddings(nn.Module):
-#     def __init__(self, vocab_size, hidden_dim, max_len=512):
-#         super().__init__()
-#         self.token_embed = nn.Embedding(vocab_size, hidden_dim)
-#         self.position_embed = nn.Embedding(max_len, hidden_dim)
-#
-#     def forward(self, x):
-#         positions = torch.arange(0, x.size(1), device=x.device).unsqueeze(0)
-#         return self.token_embed(x) + self.position_embed(positions)
+from __future__ import annotations
+
+import torch.nn as nn
+from Cerebrum.Cortex.ardor_config import ArdorConfig
+
+
+class SharedEmbeddings(nn.Module):
+    """
+    Central embedding hub.
+
+    Under use_rope=True:
+      - token_embed only (no learned position embeddings)
+    Under use_rope=False:
+      - token_embed + position_embed (legacy)
+    """
+    def __init__(self, config: ArdorConfig):
+        super().__init__()
+        config.validate()
+        self.cfg = config
+        self.token_embed = nn.Embedding(config.vocab_size, config.hidden_size)
+        self.position_embed = None
+        if not config.use_rope:
+            self.position_embed = nn.Embedding(config.max_len, config.hidden_size)
