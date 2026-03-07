@@ -5,7 +5,7 @@
 # - Random cropping; per-batch 80th percentile loss gating
 # - Ultra-low LR; gradient clipping
 
-import os, math, json, hashlib, random
+import os, math, json, hashlib, random, time, sys
 from pathlib import Path
 from typing import List, Optional
 import torch
@@ -16,11 +16,18 @@ from tqdm import tqdm
 
 # ------------------ Paths ------------------
 BASE = Path(__file__).resolve().parent
-TOKENIZER = Path(os.environ.get("ARDOR_TOKENIZER", BASE / "Ardor" / "tokenizer_v8.json"))
-CONV_DIR  = Path(os.environ.get("ARDOR_CONV_DIR",  BASE / "Conversations"))
-CHECKPOINT_IN = Path(os.environ.get("ARDOR_CKPT_IN", BASE / "Ardor" / "Ardor_Final.pt"))
-OUTPUT_MODEL  = Path(os.environ.get("ARDOR_REM_OUT", BASE / "Ardor" / "Ardor_Ksai.pt"))
-CKPT_DIR      = Path(os.environ.get("ARDOR_REM_CKPTS", BASE / "Ardor" / "REM_checkpoints"))
+REPO_ROOT = BASE.parents[1]
+ARTIFACTS_REM_DIR = REPO_ROOT / "artifacts" / "rem"
+ARTIFACTS_MODELS_DIR = REPO_ROOT / "artifacts" / "models"
+
+TOKENIZER = Path(os.environ.get("ARDOR_TOKENIZER", REPO_ROOT / "Cerebrum" / "ProjectTokenizer" / "ardor_tokenizer" / "tokenizer_v8.json"))
+CONV_DIR  = Path(os.environ.get("ARDOR_CONV_DIR",  REPO_ROOT / "artifacts" / "datasets" / "Conversations"))
+CHECKPOINT_IN = Path(os.environ.get("ARDOR_CKPT_IN", ARTIFACTS_MODELS_DIR / "Ardor_Final.pt"))
+OUTPUT_MODEL  = Path(os.environ.get("ARDOR_REM_OUT", ARTIFACTS_MODELS_DIR / "Ardor_Ksai.pt"))
+CKPT_DIR      = Path(os.environ.get("ARDOR_REM_CKPTS", ARTIFACTS_REM_DIR / "checkpoints"))
+REM_STATUS_PATH = Path(os.environ.get("ARDOR_REM_STATUS", ARTIFACTS_REM_DIR / "rem_status.json"))
+
+ARTIFACTS_REM_DIR.mkdir(parents=True, exist_ok=True)
 CKPT_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_MODEL.parent.mkdir(parents=True, exist_ok=True)
 
@@ -63,6 +70,7 @@ def _assert_tokenizer_compat(shard_root: Path, tokenizer_path: Path):
 _assert_tokenizer_compat(CONV_DIR, TOKENIZER)
 
 # ------------------ Model ------------------
+sys.path.append(str((REPO_ROOT / "Cerebrum" / "Cortex").resolve()))
 from broca_decoder import ArdorDecoder
 model = ArdorDecoder(VOCAB_SIZE, 384, 8, 6, dropout=0.0).to(DEVICE)
 model.load_state_dict(torch.load(CHECKPOINT_IN, map_location=DEVICE))
@@ -128,6 +136,18 @@ if not all_shards:
     raise RuntimeError("❌ No conversation shards found.")
 
 # ------------------ REM loop ------------------
+
+
+def _write_rem_status(epoch: int, total_epochs: int, progress: int, loss: float):
+    payload = {
+        "epoch": int(epoch),
+        "total_epochs": int(total_epochs),
+        "progress": int(progress),
+        "loss": float(loss),
+        "timestamp": time.time(),
+    }
+    REM_STATUS_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
 def save_ckpt(epoch: int):
     path = CKPT_DIR / f"REM_epoch{epoch}.pt"
     torch.save(model.state_dict(), path)
@@ -164,8 +184,10 @@ for epoch in range(1, EPOCHS + 1):
         running += loss.item()
 
     avg = running / max(1, total_kept)
+    _write_rem_status(epoch, EPOCHS, int((epoch / EPOCHS) * 100), avg)
     print(f"✅ REM epoch {epoch}: avg_kept_loss={avg:.4f}  kept/seen={total_kept}/{total_seen}")
     save_ckpt(epoch)
 
 torch.save(model.state_dict(), OUTPUT_MODEL)
+_write_rem_status(EPOCHS, EPOCHS, 100, 0.0)
 print(f"\n🎉 REM consolidation complete → {OUTPUT_MODEL}")

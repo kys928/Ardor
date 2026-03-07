@@ -63,3 +63,19 @@ Thumbs.db
 *.db-wal
 *.wsuo
 
+# Runtime artifacts (untracked)
+data/
+artifacts/
+logs/
+
+*.zip
+*.npy
+*.npz
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.onnx
+
+rem_status.json
+ardor_dialogues.jsonl

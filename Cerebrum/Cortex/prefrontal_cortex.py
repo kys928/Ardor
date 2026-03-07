@@ -65,7 +65,12 @@ def _find_eos_id(tokenizer: Tokenizer) -> Optional[int]:
 
 
 # ── conversation log ─────────────────────────────────────────────────
-LOG_FILE = Path("../Dataset/Conversations/ardor_dialogues.jsonl")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+ARTIFACTS_DIR = REPO_ROOT / "artifacts"
+ARTIFACTS_MODELS_DIR = ARTIFACTS_DIR / "models"
+ARTIFACTS_MEMORY_DIR = ARTIFACTS_DIR / "memory"
+
+LOG_FILE = ARTIFACTS_MEMORY_DIR / "ardor_dialogues.jsonl"
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 def slow_type(txt: str, delay: float = 0.005):
@@ -558,6 +563,7 @@ class ArdorCore:
             if start_dir and os.path.isdir(start_dir):
                 roots.append(start_dir)
             roots += [
+                str(REPO_ROOT / "Cerebrum" / "ProjectTokenizer" / "ardor_tokenizer"),
                 "../Cerebrum/ProjectTokenizer/ardor_tokenizer",
                 "../ProjectTokenizer/ardor_tokenizer",
                 "./Cerebrum/ProjectTokenizer/ardor_tokenizer",
@@ -1032,7 +1038,12 @@ if app:
     @app.command()
     def cli():
         slow_type("\n🧠 Welcome to Ardor CLI — Synthesizer of Minds\n")
-        roots = ["../Models", "../Cerebrum/Models", "../Cerebrum/Models/Ardor"]
+        roots = [
+            str(ARTIFACTS_MODELS_DIR),
+            "../Models",
+            "../Cerebrum/Models",
+            "../Cerebrum/Models/Ardor",
+        ]
         models = []
         for r in roots:
             if os.path.isdir(r):
@@ -1050,6 +1061,9 @@ if app:
 
         # Look nearby for a matching tokenizer; CLI keeps it simple
         tok_candidates = [
+            str(REPO_ROOT / "Cerebrum" / "ProjectTokenizer" / "ardor_tokenizer" / "tokenizer_v9.json"),
+            str(REPO_ROOT / "Cerebrum" / "ProjectTokenizer" / "ardor_tokenizer" / "tokenizer_v8.json"),
+            str(REPO_ROOT / "Cerebrum" / "ProjectTokenizer" / "ardor_tokenizer" / "tokenizer_v7.json"),
             "../ProjectTokenizer/ardor_tokenizer/tokenizer_v9.json",
             "../ProjectTokenizer/ardor_tokenizer/tokenizer_v8.json",
             "../ProjectTokenizer/ardor_tokenizer/tokenizer_v7.json",
@@ -1077,7 +1091,7 @@ if app:
                 subprocess.call(["python", "../Cerebrum/Cortex/neural_plasticity_training.py"])
                 continue
             if cmd in ("rem", "sleep"):
-                subprocess.call(["python", "../Cerebrum/CorticalIntegration/REM.py"])
+                subprocess.call(["python", str((REPO_ROOT / "Cerebrum" / "CorticalIntegration" / "REM.py").resolve())])
                 continue
 
             slow_type("\n🧠 Ardor:", 0.03)

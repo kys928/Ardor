@@ -272,15 +272,16 @@ def find_latest_epoch_ckpt(out_dir: Path) -> tuple[Optional[Path], int]:
 def main():
     ap = argparse.ArgumentParser()
     # Hard-coded defaults (overrideable)
-    ap.add_argument('--base', default='/workspace/Ardor')
-    ap.add_argument('--student_ckpt', default='runs/omega_quality_refit/Ardor_Orion.pt')
-    ap.add_argument('--student_tokenizer', default='tokenizer_v9.json')
-    ap.add_argument('--philo_glob', default='Dataset/Philosophy/*.txt')
-    ap.add_argument('--dialog_glob', default='Dataset/Conversations/*.txt')
-    ap.add_argument('--heldout', default='Philosophy_Heldout/*.txt')
+    repo_root = Path(__file__).resolve().parents[2]
+    ap.add_argument('--base', default=str(repo_root))
+    ap.add_argument('--student_ckpt', default='artifacts/models/Ardor_Orion.pt')
+    ap.add_argument('--student_tokenizer', default='Cerebrum/ProjectTokenizer/ardor_tokenizer/tokenizer_v9.json')
+    ap.add_argument('--philo_glob', default='data/Philosophy/*.txt')
+    ap.add_argument('--dialog_glob', default='data/Conversations/*.txt')
+    ap.add_argument('--heldout', default='data/Philosophy_Heldout/*.txt')
     ap.add_argument('--teacher_id', default='mistralai/Mistral-7B-v0.1')
     ap.add_argument('--teacher_adapter_dir', default='runs/mistral_pipeline/20250831_210439/phase1_finetune')
-    ap.add_argument('--out_dir', default='runs/rem_omega')
+    ap.add_argument('--out_dir', default='artifacts/models/rem_omega')
     ap.add_argument('--out_name', default='Ardor_Orion_REM.pt')
 
     # REM params
@@ -363,6 +364,7 @@ def main():
 
     # Load student (base)
     sys.path.append(str(base))
+    sys.path.append(str((base / "Cerebrum" / "Cortex").resolve()))
     from broca_decoder import ArdorDecoder
     base_sd = torch.load((base / args.student_ckpt).resolve(), map_location='cpu')
 
@@ -407,11 +409,11 @@ def main():
     if real_loader is None:
         # fallback: try philosophy and conversation shard dirs
         shard_paths = []
-        for d in [base / 'Dataset' / 'Philosophy', base / 'Dataset' / 'Conversations']:
+        for d in [base / 'artifacts' / 'datasets' / 'Philosophy', base / 'artifacts' / 'datasets' / 'Conversations']:
             if d.is_dir():
                 shard_paths.extend(sorted(d.rglob('*.pt')))
         if not shard_paths:
-            raise SystemExit('❌ No data for REM: no .txt matched and no .pt shards found in Dataset.')
+            raise SystemExit('❌ No data for REM: no .txt matched and no .pt shards found in artifacts/datasets.')
         print(f"[rem] Falling back to .pt shards: {len(shard_paths)} files")
         real_ds = TokenShardDataset(shard_paths, ctx_len=1024)
         real_loader = DataLoader(

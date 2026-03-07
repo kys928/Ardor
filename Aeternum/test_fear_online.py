@@ -6,11 +6,12 @@ import numpy as np
 import torch
 
 # Where your pooled embeddings live
-DATASET_DIR = Path(__file__).with_name("Dataset")  # Aeternum/Dataset
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DATASET_DIR = REPO_ROOT / "artifacts" / "datasets" / "Aeternum"
 
 def load_any_pooled_embedding(row_idx: int = 0) -> torch.Tensor:
     """
-    Load one pooled embedding from the *_X.npy files under Aeternum/Dataset.
+    Load one pooled embedding from the *_X.npy files under artifacts/datasets/Aeternum.
 
     Assumes files like:
         goe_train_X.npy, goe_val_X.npy, meld_train_X.npy, ...
