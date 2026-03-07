@@ -5,12 +5,14 @@ from pathlib import Path
 import os
 
 ROOT = Path(__file__).resolve().parent
-SAVE_PATH = (ROOT / ".." / "ProjectTokenizer" / "ardor_tokenizer" / "tokenizer_v8.json").resolve()
+REPO_ROOT = ROOT.parents[1]
+DATA_DIR = REPO_ROOT / "data"
+SAVE_PATH = (REPO_ROOT / "Cerebrum" / "ProjectTokenizer" / "ardor_tokenizer" / "tokenizer_v8.json").resolve()
 
-# Two conversation shards (fix the typo in your path)
+# Two conversation shards
 texts = [
-    r"C:\Users\adm\PycharmProjects\ProjectArdor\Cerebrum\Training Data\ConversationsOut\Conversations_00001.txt",
-    r"C:\Users\adm\PycharmProjects\ProjectArdor\Cerebrum\Training Data\ConversationsOut\Conversations_00002.txt",
+    str(DATA_DIR / "Training Data" / "ConversationsOut" / "Conversations_00001.txt"),
+    str(DATA_DIR / "Training Data" / "ConversationsOut" / "Conversations_00002.txt"),
 ]
 
 # ── Build Byte-Level BPE Tokenizer ─────────────────────────────────────
