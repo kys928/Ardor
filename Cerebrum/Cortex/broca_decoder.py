@@ -1,33 +1,86 @@
 import torch
 import torch.nn as nn
 from fronto_parietal_loop import TransformerBlock
-from thalamic_utils import causal_mask as _causal_mask
+from ardor_config import ArdorConfig
+
 
 class ArdorDecoder(nn.Module):
-   
-    def __init__(self, vocab_size, hidden=384, layers=8, heads=6,
-                 max_len=2048, dropout=0.15):
+    def __init__(self, config_or_vocab, hidden=384, layers=8, heads=6, max_len=2048, dropout=0.15):
         super().__init__()
-        self.token_embed   = nn.Embedding(vocab_size, hidden)
-        self.position_embed = nn.Embedding(max_len, hidden)
-        self.dropout = nn.Dropout(dropout)
+
+        if isinstance(config_or_vocab, ArdorConfig):
+            config = config_or_vocab
+        else:
+            config = ArdorConfig(
+                vocab_size=int(config_or_vocab),
+                hidden_size=int(hidden),
+                n_layers=int(layers),
+                n_heads=int(heads),
+                max_len=int(max_len),
+                dropout=float(dropout),
+                attn_dropout=float(dropout),
+                resid_dropout=float(dropout),
+            )
+        config.validate()
+        self.cfg = config
+
+        self.vocab_size = int(config.vocab_size)
+        self.hidden = int(config.hidden_size)
+        self.hidden_size = int(config.hidden_size)
+        self.num_layers = int(config.n_layers)
+        self.n_layers = int(config.n_layers)
+        self.heads = int(config.n_heads)
+        self.n_heads = int(config.n_heads)
+        self.max_len = int(config.max_len)
+        self.ff_mult = int(config.ff_mult)
+        self.dropout_p = float(config.dropout)
+        self.attn_dropout = float(config.attn_dropout)
+        self.resid_dropout = float(config.resid_dropout)
+        self.layernorm_eps = float(config.layernorm_eps)
+        self.use_rope = bool(config.use_rope)
+        self.rope_theta = float(config.rope_theta)
+
+        self.token_embed = nn.Embedding(self.vocab_size, self.hidden_size)
+        self.position_embed = nn.Embedding(self.max_len, self.hidden_size)
+        self.dropout = nn.Dropout(self.dropout_p)
 
         self.blocks = nn.ModuleList([
-            TransformerBlock(hidden, heads, dropout=dropout)
-            for _ in range(layers)
+            TransformerBlock(self.hidden_size, self.n_heads, ff_hidden_mult=self.ff_mult, dropout=self.dropout_p)
+            for _ in range(self.num_layers)
         ])
+        self.layers = self.blocks
 
-        self.norm    = nn.LayerNorm(hidden)
-        self.lm_head = nn.Linear(hidden, vocab_size, bias=False)
-        self.lm_head.weight = self.token_embed.weight  # tie
+        self.norm = nn.LayerNorm(self.hidden_size, eps=self.layernorm_eps)
+        self.lm_head = nn.Linear(self.hidden_size, self.vocab_size, bias=False)
+        self.lm_head.weight = self.token_embed.weight
+
+    def model_config(self) -> dict:
+        return {
+            "arch": "ArdorDecoder",
+            "vocab_size": self.vocab_size,
+            "hidden_size": self.hidden_size,
+            "hidden": self.hidden_size,
+            "n_layers": self.num_layers,
+            "layers": self.num_layers,
+            "n_heads": self.n_heads,
+            "heads": self.n_heads,
+            "ff_mult": self.ff_mult,
+            "max_len": self.max_len,
+            "dropout": self.dropout_p,
+            "attn_dropout": self.attn_dropout,
+            "resid_dropout": self.resid_dropout,
+            "layernorm_eps": self.layernorm_eps,
+            "use_rope": self.use_rope,
+            "rope_theta": self.rope_theta,
+            "positional_encoding": "rope" if self.use_rope else "learned_absolute",
+        }
 
     def forward(self, idx: torch.LongTensor) -> torch.Tensor:
         B, T = idx.shape
         pos = torch.arange(0, T, device=idx.device).unsqueeze(0)
         x = self.token_embed(idx) + self.position_embed(pos)
         x = self.dropout(x)
-        mask = _causal_mask(T, device=x.device)
         for blk in self.blocks:
-            x = blk(x, mask=mask)
+            x = blk(x, mask=None)
         x = self.norm(x)
         return self.lm_head(x)

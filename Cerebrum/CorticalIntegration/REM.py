@@ -72,8 +72,36 @@ _assert_tokenizer_compat(CONV_DIR, TOKENIZER)
 # ------------------ Model ------------------
 sys.path.append(str((REPO_ROOT / "Cerebrum" / "Cortex").resolve()))
 from broca_decoder import ArdorDecoder
-model = ArdorDecoder(VOCAB_SIZE, 384, 8, 6, dropout=0.0).to(DEVICE)
-model.load_state_dict(torch.load(CHECKPOINT_IN, map_location=DEVICE))
+from ardor_config import ArdorConfig
+
+raw_ckpt = torch.load(CHECKPOINT_IN, map_location=DEVICE)
+if isinstance(raw_ckpt, dict):
+    ckpt_sd = raw_ckpt.get("state_dict") or raw_ckpt.get("model") or raw_ckpt
+    ckpt_cfg = dict(raw_ckpt.get("config") or raw_ckpt.get("meta") or {})
+else:
+    ckpt_sd = raw_ckpt
+    ckpt_cfg = {}
+
+if not isinstance(ckpt_sd, dict):
+    raise RuntimeError("Unsupported checkpoint format for REM")
+
+if "token_embed.weight" in ckpt_sd:
+    vocab = int(ckpt_sd["token_embed.weight"].shape[0])
+    hidden = int(ckpt_sd["token_embed.weight"].shape[1])
+else:
+    vocab = int(ckpt_cfg.get("vocab_size") or VOCAB_SIZE)
+    hidden = int(ckpt_cfg.get("hidden_size") or ckpt_cfg.get("hidden") or 384)
+
+try:
+    layers = int(ckpt_cfg.get("n_layers") or ckpt_cfg.get("layers") or (max(int(k.split('.')[1]) for k in ckpt_sd.keys() if k.startswith('blocks.') and '.attn.q.' in k) + 1))
+except Exception:
+    layers = int(ckpt_cfg.get("n_layers") or ckpt_cfg.get("layers") or 8)
+heads = int(ckpt_cfg.get("n_heads") or ckpt_cfg.get("heads") or (6 if hidden % 6 == 0 else 8))
+max_len = int(ckpt_cfg.get("max_len") or 2048)
+
+cfg = ArdorConfig(vocab_size=vocab, hidden_size=hidden, n_layers=layers, n_heads=heads, max_len=max_len, dropout=0.0, attn_dropout=0.0, resid_dropout=0.0, use_rope=bool(ckpt_cfg.get("use_rope", False)), rope_theta=float(ckpt_cfg.get("rope_theta", 10000.0)))
+model = ArdorDecoder(cfg).to(DEVICE)
+model.load_state_dict(ckpt_sd, strict=False)
 print(f"✅ Loaded checkpoint: {CHECKPOINT_IN}")
 
 # Freeze all, then unfreeze only top-2 blocks + head
@@ -148,9 +176,24 @@ def _write_rem_status(epoch: int, total_epochs: int, progress: int, loss: float)
     }
     REM_STATUS_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
+def _checkpoint_payload() -> dict:
+    sd = model.state_dict()
+    cfg = model.model_config() if hasattr(model, "model_config") else (model.cfg.to_dict() if hasattr(model, "cfg") else {})
+    tok_sha = _fingerprint(TOKENIZER) if TOKENIZER.exists() else ""
+    return {
+        "state_dict": sd,
+        "model": sd,
+        "arch": "ArdorDecoder",
+        "config": cfg,
+        "tokenizer_path": str(TOKENIZER),
+        "tokenizer_vocab_size": int(VOCAB_SIZE),
+        "tokenizer_sha256": tok_sha,
+        "positional_encoding": "rope" if bool(getattr(model, "use_rope", False)) else "learned_absolute",
+    }
+
 def save_ckpt(epoch: int):
     path = CKPT_DIR / f"REM_epoch{epoch}.pt"
-    torch.save(model.state_dict(), path)
+    torch.save(_checkpoint_payload(), path)
     return path
 
 for epoch in range(1, EPOCHS + 1):
@@ -188,6 +231,6 @@ for epoch in range(1, EPOCHS + 1):
     print(f"✅ REM epoch {epoch}: avg_kept_loss={avg:.4f}  kept/seen={total_kept}/{total_seen}")
     save_ckpt(epoch)
 
-torch.save(model.state_dict(), OUTPUT_MODEL)
+torch.save(_checkpoint_payload(), OUTPUT_MODEL)
 _write_rem_status(EPOCHS, EPOCHS, 100, 0.0)
 print(f"\n🎉 REM consolidation complete → {OUTPUT_MODEL}")
