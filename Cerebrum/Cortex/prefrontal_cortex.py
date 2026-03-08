@@ -96,14 +96,17 @@ class ParietalMemory:
     def __init__(self, tokenizer, device, vocab_size, hidden=384, layers=8, heads=6, max_len=1024):
         self.device = device
         self.tok = tokenizer
-        self.encoder = ArdorEncoder(
-            vocab_size,
-            hidden_dim=hidden,
-            num_layers=layers,
-            heads=heads,
-            max_len=max_len,
+        cfg = ArdorConfig(
+            vocab_size=int(vocab_size),
+            hidden_size=int(hidden),
+            n_layers=int(layers),
+            n_heads=int(heads),
+            max_len=int(max_len),
             dropout=0.1,
-        ).to(device).eval()
+            attn_dropout=0.1,
+            resid_dropout=0.1,
+        )
+        self.encoder = ArdorEncoder(cfg, use_cls_token=False).to(device).eval()
         self.index_texts: List[str] = []
         self.index_emb: Optional[torch.Tensor] = None
 
@@ -673,6 +676,179 @@ def _load_required_meta(model_path: str, tokenizer_path_hint: str | None) -> dic
         raise FileNotFoundError(f"Strict metadata mode enabled and meta file is missing: {meta_path}")
     return {}
 
+
+
+def _generic_tokenizer_candidates() -> List[str]:
+    roots = [
+        REPO_ROOT / "Cerebrum" / "ProjectTokenizer" / "ardor_tokenizer",
+        REPO_ROOT / "ProjectTokenizer" / "ardor_tokenizer",
+        Path(os.getcwd()),
+    ]
+    seen: set[str] = set()
+    out: List[str] = []
+    for root in roots:
+        rr = root.resolve() if root.exists() else root
+        if not rr.exists() or not rr.is_dir():
+            continue
+        for patt in ("tokenizer*.json", "tokenizer.json"):
+            for fp in rr.glob(patt):
+                ap = str(fp.resolve())
+                if ap not in seen:
+                    seen.add(ap)
+                    out.append(ap)
+    out.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+    return out
+
+
+def _describe_model(model: torch.nn.Module, mismatch: Optional[dict] = None) -> Dict[str, Any]:
+    desc = _introspect_model(model)
+    if hasattr(model, "model_config") and callable(model.model_config):
+        try:
+            meta = model.model_config() or {}
+            if isinstance(meta, dict):
+                desc.update({
+                    "vocab": meta.get("vocab_size", desc.get("vocab")),
+                    "hidden": meta.get("hidden_size", meta.get("hidden", desc.get("hidden"))),
+                    "layers": meta.get("n_layers", meta.get("layers", desc.get("layers"))),
+                    "heads": meta.get("n_heads", meta.get("heads", desc.get("heads"))),
+                    "max_len": meta.get("max_len", desc.get("max_len")),
+                })
+        except Exception:
+            pass
+    desc["mismatch"] = mismatch or {"missing": [], "unexpected": []}
+    return desc
+
+
+def _load_broca_cached(model_path: str, device: str, tokenizer_path_hint: Optional[str] = None):
+    raw = torch.load(model_path, map_location=device)
+    checkpoint_meta = _read_checkpoint_meta(raw)
+    file_meta = _load_required_meta(model_path, tokenizer_path_hint)
+    if isinstance(file_meta, dict):
+        merged = dict(file_meta)
+        merged.update(checkpoint_meta)
+        checkpoint_meta = merged
+
+    missing_list: List[str] = []
+    unexpected_list: List[str] = []
+
+    if isinstance(raw, torch.nn.Module):
+        model = raw.to(device).eval()
+        try:
+            want_vocab = int(model.lm_head.weight.shape[0])
+        except Exception:
+            want_vocab = int(model.token_embed.weight.shape[0])
+        model_desc = _describe_model(model)
+        return model, model_desc, want_vocab, checkpoint_meta, None
+
+    sd = _resolve_state_dict_from_raw(raw)
+    model = None
+
+    try:
+        arch = checkpoint_meta.get("arch") or checkpoint_meta.get("model")
+        if arch in MODEL_REGISTRY:
+            cfg = ArdorConfig.from_dict(checkpoint_meta)
+            model = MODEL_REGISTRY[arch](cfg)
+    except Exception:
+        model = None
+
+    if model is None:
+        vocab, hidden, layers, max_len = _infer_dims_from_state(sd)
+        use_rope = "position_embed.weight" not in sd
+        heads = _best_heads(hidden)
+        cfg = ArdorConfig(
+            vocab_size=vocab,
+            hidden_size=hidden,
+            n_layers=layers,
+            n_heads=heads,
+            max_len=max_len,
+            dropout=float(checkpoint_meta.get("dropout", 0.15) or 0.15),
+            attn_dropout=float(checkpoint_meta.get("attn_dropout", checkpoint_meta.get("dropout", 0.15)) or 0.15),
+            resid_dropout=float(checkpoint_meta.get("resid_dropout", checkpoint_meta.get("dropout", 0.15)) or 0.15),
+            ff_mult=int(checkpoint_meta.get("ff_mult", 4) or 4),
+            layernorm_eps=float(checkpoint_meta.get("layernorm_eps", 1e-5) or 1e-5),
+            use_rope=bool(checkpoint_meta.get("use_rope", use_rope)),
+            rope_theta=float(checkpoint_meta.get("rope_theta", 10000.0) or 10000.0),
+        )
+        model = ArdorDecoder(cfg)
+
+    remapped = _remap_to_model_schema(sd, set(model.state_dict().keys()))
+    try:
+        model.load_state_dict(remapped, strict=True)
+    except Exception:
+        missing, unexpected = model.load_state_dict(remapped, strict=False)
+        missing_list = list(missing) if isinstance(missing, list) else list(missing or [])
+        unexpected_list = list(unexpected) if isinstance(unexpected, list) else list(unexpected or [])
+        print(f"[load] non-strict: missing={len(missing_list or [])} unexpected={len(unexpected_list or [])}")
+
+    model = model.to(device).eval()
+    want_vocab = int(getattr(model, "vocab_size", 0) or _infer_dims_from_state(sd)[0])
+    model_desc = _describe_model(model, {"missing": missing_list, "unexpected": unexpected_list})
+    return model, model_desc, want_vocab, checkpoint_meta, remapped
+
+
+def _infer_encoder_dims_from_state(sd: Dict[str, torch.Tensor], fallback_cfg: Optional[ArdorConfig] = None) -> ArdorConfig:
+    if "token_embed.weight" in sd:
+        vocab = int(sd["token_embed.weight"].shape[0])
+        hidden = int(sd["token_embed.weight"].shape[1])
+    else:
+        vocab = int(getattr(fallback_cfg, "vocab_size", 32000))
+        hidden = int(getattr(fallback_cfg, "hidden_size", 384))
+    try:
+        layers = max(int(k.split('.')[1]) for k in sd.keys() if k.startswith('layers.') and '.attn.' in k) + 1
+    except Exception:
+        layers = int(getattr(fallback_cfg, "n_layers", 8))
+    try:
+        max_len = int(sd.get("position_embed.weight").shape[0])
+    except Exception:
+        max_len = int(getattr(fallback_cfg, "max_len", 1024))
+    heads = int(getattr(fallback_cfg, "n_heads", _best_heads(hidden)))
+    if hidden % max(1, heads) != 0:
+        heads = _best_heads(hidden)
+    return ArdorConfig(
+        vocab_size=vocab,
+        hidden_size=hidden,
+        n_layers=layers,
+        n_heads=heads,
+        max_len=max_len,
+        dropout=float(getattr(fallback_cfg, "dropout", 0.1)),
+        attn_dropout=float(getattr(fallback_cfg, "attn_dropout", 0.1)),
+        resid_dropout=float(getattr(fallback_cfg, "resid_dropout", 0.1)),
+        ff_mult=int(getattr(fallback_cfg, "ff_mult", 4)),
+        layernorm_eps=float(getattr(fallback_cfg, "layernorm_eps", 1e-5)),
+        use_rope=bool(getattr(fallback_cfg, "use_rope", False)),
+        rope_theta=float(getattr(fallback_cfg, "rope_theta", 10000.0)),
+    )
+
+
+def _load_encoder_cached(encoder_ckpt: Optional[str], device: str, fallback_decoder_cfg: Optional[ArdorConfig] = None):
+    if not encoder_ckpt or not os.path.isfile(encoder_ckpt):
+        return None
+    raw = torch.load(encoder_ckpt, map_location=device)
+    meta = _read_checkpoint_meta(raw)
+
+    if isinstance(raw, torch.nn.Module):
+        return raw.to(device).eval()
+
+    sd = _resolve_state_dict_from_raw(raw)
+    enc = None
+    try:
+        arch = meta.get("arch") or meta.get("model")
+        if arch in ENCODER_REGISTRY:
+            cfg = ArdorConfig.from_dict(meta)
+            enc = ENCODER_REGISTRY[arch](cfg, use_cls_token=bool(meta.get("use_cls_token", True)))
+    except Exception:
+        enc = None
+
+    if enc is None:
+        cfg = _infer_encoder_dims_from_state(sd, fallback_decoder_cfg)
+        use_cls = bool(meta.get("use_cls_token", True)) if isinstance(meta, dict) else True
+        enc = ArdorEncoder(cfg, use_cls_token=use_cls)
+
+    remapped = _remap_to_model_schema(sd, set(enc.state_dict().keys()))
+    enc.load_state_dict(remapped, strict=False)
+    return enc.to(device).eval()
+
+
 class ArdorCore:
     def __init__(
         self,
@@ -682,74 +858,16 @@ class ArdorCore:
         max_len: int = 300,
         *,
         enable_retrieval: bool = False,
+        encoder_ckpt: Optional[str] = None,
     ):
         # max_len here is *generation* budget; model context is reported separately.
         self.device = device
         self.gen_max_tokens = int(max_len)
         self.enable_retrieval = bool(enable_retrieval)
 
-        raw = torch.load(model_path, map_location=device)
-        checkpoint_meta = _read_checkpoint_meta(raw)
-        file_meta = _load_required_meta(model_path, tokenizer_path)
-        if isinstance(file_meta, dict):
-            merged = dict(file_meta)
-            merged.update(checkpoint_meta)
-            checkpoint_meta = merged
-
-        missing_list: Optional[List[str]] = None
-        unexpected_list: Optional[List[str]] = None
-
-        # Path 1: full module checkpoint
-        if isinstance(raw, torch.nn.Module):
-            self.model = raw.to(device).eval()
-            model_sd = None
-            try:
-                want_vocab = int(self.model.lm_head.weight.shape[0])
-            except Exception:
-                want_vocab = int(self.model.token_embed.weight.shape[0])
-        else:
-            sd = _resolve_state_dict_from_raw(raw)
-
-            # Path 2: metadata-driven reconstruction
-            model = None
-            try:
-                arch = checkpoint_meta.get("arch") or checkpoint_meta.get("model")
-                if arch in MODEL_REGISTRY:
-                    cfg = _config_from_meta(checkpoint_meta)
-                    model = MODEL_REGISTRY[arch](cfg)
-            except Exception:
-                model = None
-
-            # Path 3: legacy inference fallback
-            if model is None:
-                vocab, hidden, layers, maxlen = _infer_dims_from_state(sd)
-                heads = _best_heads(hidden, prefer=6)
-                use_rope = "position_embed.weight" not in sd
-                cfg = ArdorConfig(
-                    vocab_size=vocab,
-                    hidden_size=hidden,
-                    n_layers=layers,
-                    n_heads=heads,
-                    max_len=maxlen,
-                    dropout=0.12,
-                    attn_dropout=0.12,
-                    resid_dropout=0.12,
-                    use_rope=use_rope,
-                )
-                model = ArdorDecoder(cfg)
-
-            remapped = _remap_to_model_schema(sd, set(model.state_dict().keys()))
-            try:
-                model.load_state_dict(remapped, strict=True)
-            except Exception:
-                missing, unexpected = model.load_state_dict(remapped, strict=False)
-                missing_list = list(missing) if isinstance(missing, list) else list(missing or [])
-                unexpected_list = list(unexpected) if isinstance(unexpected, list) else list(unexpected or [])
-                print(f"[load] non-strict: missing={len(missing_list or [])} unexpected={len(unexpected_list or [])}")
-
-            self.model = model.to(device).eval()
-            model_sd = remapped
-            want_vocab = int(getattr(self.model, "vocab_size", 0) or _infer_dims_from_state(sd)[0])
+        self.model, model_desc, want_vocab, checkpoint_meta, model_sd = _load_broca_cached(
+            model_path, device, tokenizer_path
+        )
 
         # Tie head ⇄ embedding if shapes agree (saves params / consistency)
         try:
@@ -767,7 +885,6 @@ class ArdorCore:
         self.tokenizer = tokenizer_obj
         try:
             name = type(self.tokenizer.model).__name__.lower()
-            # Attach a ByteLevel decoder only for actual BPE models and if no decoder is already set.
             if name == "bpe" and getattr(self.tokenizer, "decoder", None) is None:
                 self.tokenizer.decoder = ByteLevel()
         except Exception:
@@ -784,26 +901,23 @@ class ArdorCore:
                 f"(vocab={self.tokenizer.get_vocab_size()})"
             )
 
-        # ---------- model schema export (fills the 'None' you saw) ----------
-        schema = _introspect_model(self.model, sd=model_sd)
-        self.layers = int(schema.get("layers")) if schema.get("layers") is not None else None
-        self.heads = int(schema.get("heads")) if schema.get("heads") is not None else None
-        self.hidden = int(schema.get("hidden")) if schema.get("hidden") is not None else None
-        self.model_ctx_len = int(schema.get("max_len")) if schema.get("max_len") is not None else None
-        self.vocab_size = int(schema.get("vocab")) if schema.get("vocab") is not None else want_vocab
-        self.schema = {
+        # ---------- model schema export ----------
+        self.layers = int(model_desc.get("layers")) if model_desc.get("layers") is not None else None
+        self.heads = int(model_desc.get("heads")) if model_desc.get("heads") is not None else None
+        self.hidden = int(model_desc.get("hidden")) if model_desc.get("hidden") is not None else None
+        self.model_ctx_len = int(model_desc.get("max_len")) if model_desc.get("max_len") is not None else None
+        self.vocab_size = int(model_desc.get("vocab")) if model_desc.get("vocab") is not None else want_vocab
+        self.schema = dict(model_desc)
+        self.schema.update({
             "layers": self.layers,
             "heads": self.heads,
             "hidden": self.hidden,
             "max_len": self.model_ctx_len,
             "vocab": self.vocab_size,
-            "mismatch": {
-                "missing": missing_list,
-                "unexpected": unexpected_list,
-            },
-        }
-        miss_ct = None if missing_list is None else len(missing_list)
-        unex_ct = None if unexpected_list is None else len(unexpected_list)
+        })
+        mismatch = self.schema.get("mismatch") or {"missing": [], "unexpected": []}
+        miss_ct = len(mismatch.get("missing") or [])
+        unex_ct = len(mismatch.get("unexpected") or [])
         print(
             f"🧠 Model schema: layers={self.layers} heads={self.heads} hidden={self.hidden} "
             f"max_len={self.model_ctx_len} mismatch: missing={miss_ct} unexpected={unex_ct}"
@@ -818,11 +932,10 @@ class ArdorCore:
         # ---------- Parietal memory (RETRIEVAL OFF by default) ----------
         self.parietal: Optional[ParietalMemory] = None
         if self.enable_retrieval:
-            try:
-                vocab_size_tok = self.tokenizer.get_vocab_size()
-            except Exception:
-                vocab_size_tok = len(self.tokenizer.get_vocab())
-            self.parietal = ParietalMemory(self.tokenizer, self.device, vocab_size_tok)
+            self.parietal = ParietalMemory(self.tokenizer, self.device, want_vocab)
+            enc = _load_encoder_cached(encoder_ckpt, self.device, getattr(self.model, 'cfg', None))
+            if enc is not None:
+                self.parietal.encoder = enc
             enc = getattr(self.parietal, "encoder", None)
             if hasattr(enc, "tie_from_broca"):
                 try:
@@ -839,7 +952,6 @@ class ArdorCore:
         self._digit_ids = _token_ids_for_chars(self.tokenizer, set("0123456789"))
         self._eos_id = _find_eos_id(self.tokenizer)
         self._eot_id = self.tokenizer.token_to_id("<|eot|>")
-
     # ───────────── prompt classification (heuristics) ────────────────
     @staticmethod
     def classify_prompt(prompt: str) -> str:
@@ -1193,9 +1305,15 @@ def get_global_core(
     max_len: int = 300,
     force_reload: bool = False,
 ) -> ArdorCore:
-    del encoder_ckpt  # reserved for compatibility
     global _GLOBAL_CORE, _GLOBAL_CORE_KEY
-    key = (os.path.abspath(model_path), os.path.abspath(tokenizer_path) if tokenizer_path else None, device, bool(enable_retrieval), int(max_len))
+    key = (
+        os.path.abspath(model_path),
+        os.path.abspath(tokenizer_path) if tokenizer_path else None,
+        device,
+        bool(enable_retrieval),
+        os.path.abspath(encoder_ckpt) if encoder_ckpt else None,
+        int(max_len),
+    )
     if force_reload or _GLOBAL_CORE is None or _GLOBAL_CORE_KEY != key:
         _GLOBAL_CORE = ArdorCore(
             model_path=model_path,
@@ -1203,6 +1321,7 @@ def get_global_core(
             device=device,
             max_len=max_len,
             enable_retrieval=enable_retrieval,
+            encoder_ckpt=encoder_ckpt,
         )
         _GLOBAL_CORE_KEY = key
     return _GLOBAL_CORE
@@ -1243,21 +1362,11 @@ if app:
         idx = int(_ty.prompt(f"\n🔎 Choose a model [1–{len(models)}]")) - 1
         model_path = models[idx]
 
-        # Look nearby for a matching tokenizer; CLI keeps it simple
-        tok_candidates = [
-            str(REPO_ROOT / "Cerebrum" / "ProjectTokenizer" / "ardor_tokenizer" / "tokenizer_v9.json"),
-            str(REPO_ROOT / "Cerebrum" / "ProjectTokenizer" / "ardor_tokenizer" / "tokenizer_v8.json"),
-            str(REPO_ROOT / "Cerebrum" / "ProjectTokenizer" / "ardor_tokenizer" / "tokenizer_v7.json"),
-            "../ProjectTokenizer/ardor_tokenizer/tokenizer_v9.json",
-            "../ProjectTokenizer/ardor_tokenizer/tokenizer_v8.json",
-            "../ProjectTokenizer/ardor_tokenizer/tokenizer_v7.json",
-            "../Cerebrum/ProjectTokenizer/ardor_tokenizer/tokenizer_v9.json",
-            "../Cerebrum/ProjectTokenizer/ardor_tokenizer/tokenizer_v8.json",
-            "../Cerebrum/ProjectTokenizer/ardor_tokenizer/tokenizer_v7.json",
-        ]
-        tokenizer_path = next((p for p in tok_candidates if os.path.isfile(p)), None)
+        # Look nearby for a tokenizer without version bias.
+        tok_candidates = _generic_tokenizer_candidates()
+        tokenizer_path = tok_candidates[0] if tok_candidates else None
         if tokenizer_path is None:
-            print("Tokenizer not found. Please place tokenizer_v*.json in ProjectTokenizer/ardor_tokenizer.")
+            print("Tokenizer not found. Please place tokenizer*.json in ProjectTokenizer/ardor_tokenizer.")
             return
 
         # Retrieval is OFF by default.

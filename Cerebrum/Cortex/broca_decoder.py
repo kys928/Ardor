@@ -5,22 +5,8 @@ from ardor_config import ArdorConfig
 
 
 class ArdorDecoder(nn.Module):
-    def __init__(self, config_or_vocab, hidden=384, layers=8, heads=6, max_len=2048, dropout=0.15):
+    def __init__(self, config: ArdorConfig):
         super().__init__()
-
-        if isinstance(config_or_vocab, ArdorConfig):
-            config = config_or_vocab
-        else:
-            config = ArdorConfig(
-                vocab_size=int(config_or_vocab),
-                hidden_size=int(hidden),
-                n_layers=int(layers),
-                n_heads=int(heads),
-                max_len=int(max_len),
-                dropout=float(dropout),
-                attn_dropout=float(dropout),
-                resid_dropout=float(dropout),
-            )
         config.validate()
         self.cfg = config
 
@@ -34,6 +20,7 @@ class ArdorDecoder(nn.Module):
         self.max_len = int(config.max_len)
         self.ff_mult = int(config.ff_mult)
         self.dropout_p = float(config.dropout)
+        self.dropout = float(config.dropout)
         self.attn_dropout = float(config.attn_dropout)
         self.resid_dropout = float(config.resid_dropout)
         self.layernorm_eps = float(config.layernorm_eps)
@@ -42,7 +29,7 @@ class ArdorDecoder(nn.Module):
 
         self.token_embed = nn.Embedding(self.vocab_size, self.hidden_size)
         self.position_embed = nn.Embedding(self.max_len, self.hidden_size)
-        self.dropout = nn.Dropout(self.dropout_p)
+        self.drop = nn.Dropout(self.dropout_p)
 
         self.blocks = nn.ModuleList([
             TransformerBlock(self.hidden_size, self.n_heads, ff_hidden_mult=self.ff_mult, dropout=self.dropout_p)
@@ -66,7 +53,7 @@ class ArdorDecoder(nn.Module):
             "heads": self.n_heads,
             "ff_mult": self.ff_mult,
             "max_len": self.max_len,
-            "dropout": self.dropout_p,
+            "dropout": self.dropout,
             "attn_dropout": self.attn_dropout,
             "resid_dropout": self.resid_dropout,
             "layernorm_eps": self.layernorm_eps,
@@ -79,7 +66,7 @@ class ArdorDecoder(nn.Module):
         B, T = idx.shape
         pos = torch.arange(0, T, device=idx.device).unsqueeze(0)
         x = self.token_embed(idx) + self.position_embed(pos)
-        x = self.dropout(x)
+        x = self.drop(x)
         for blk in self.blocks:
             x = blk(x, mask=None)
         x = self.norm(x)

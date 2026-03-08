@@ -267,6 +267,72 @@ def find_latest_epoch_ckpt(out_dir: Path) -> tuple[Optional[Path], int]:
     return latest_path, latest_num  # num corresponds to finished epoch count
 
 
+
+# scratch initialization only
+SCRATCH_DEFAULTS = {
+    'hidden_size': 768,
+    'n_layers': 12,
+    'n_heads': 12,
+    'max_len': 1024,
+    'dropout': 0.15,
+    'attn_dropout': 0.15,
+    'resid_dropout': 0.15,
+}
+
+
+def _infer_base_cfg_from_state(base_sd: dict, base_meta: dict, tok: Tokenizer) -> "ArdorConfig":
+    from ardor_config import ArdorConfig
+    if 'token_embed.weight' in base_sd:
+        vocab = int(base_sd['token_embed.weight'].shape[0])
+        hidden = int(base_sd['token_embed.weight'].shape[1])
+    else:
+        vocab = int(base_meta.get('vocab_size') or tok.get_vocab_size())
+        hidden = int(base_meta.get('hidden_size') or base_meta.get('hidden') or SCRATCH_DEFAULTS['hidden_size'])
+    try:
+        inferred_layers = max(int(k.split('.')[1]) for k in base_sd.keys() if k.startswith('blocks.') and '.attn.q.' in k) + 1
+    except Exception:
+        inferred_layers = None
+    layers = int(base_meta.get('n_layers') or base_meta.get('layers') or inferred_layers or SCRATCH_DEFAULTS['n_layers'])
+    inferred_heads = None
+    if hidden % 12 == 0:
+        inferred_heads = 12
+    elif hidden % 8 == 0:
+        inferred_heads = 8
+    heads = int(base_meta.get('n_heads') or base_meta.get('heads') or inferred_heads or SCRATCH_DEFAULTS['n_heads'])
+    max_len = int(base_meta.get('max_len') or SCRATCH_DEFAULTS['max_len'])
+    return ArdorConfig(
+        vocab_size=vocab,
+        hidden_size=hidden,
+        n_layers=layers,
+        n_heads=heads,
+        max_len=max_len,
+        dropout=float(base_meta.get('dropout') or SCRATCH_DEFAULTS['dropout']),
+        attn_dropout=float(base_meta.get('attn_dropout') or base_meta.get('dropout') or SCRATCH_DEFAULTS['attn_dropout']),
+        resid_dropout=float(base_meta.get('resid_dropout') or base_meta.get('dropout') or SCRATCH_DEFAULTS['resid_dropout']),
+    )
+
+
+
+
+def _resolve_tokenizer_path(base: Path, tokenizer_arg: str) -> Path:
+    candidate = Path(tokenizer_arg)
+    if not candidate.is_absolute():
+        candidate = (base / candidate).resolve()
+    if candidate.exists():
+        return candidate
+    roots = [
+        base / 'Cerebrum' / 'ProjectTokenizer' / 'ardor_tokenizer',
+        base / 'ProjectTokenizer' / 'ardor_tokenizer',
+    ]
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for patt in ('tokenizer.json', 'tokenizer*.json'):
+            matches = sorted(root.glob(patt), key=lambda p: p.stat().st_mtime, reverse=True)
+            if matches:
+                return matches[0].resolve()
+    return candidate
+
 # --------------------------- Main ---------------------------
 
 def main():
@@ -275,7 +341,7 @@ def main():
     repo_root = Path(__file__).resolve().parents[2]
     ap.add_argument('--base', default=str(repo_root))
     ap.add_argument('--student_ckpt', default='artifacts/models/Ardor_Orion.pt')
-    ap.add_argument('--student_tokenizer', default='Cerebrum/ProjectTokenizer/ardor_tokenizer/tokenizer_v9.json')
+    ap.add_argument('--student_tokenizer', default=os.environ.get('ARDOR_TOKENIZER', 'Cerebrum/ProjectTokenizer/ardor_tokenizer/tokenizer.json'))
     ap.add_argument('--philo_glob', default='data/Philosophy/*.txt')
     ap.add_argument('--dialog_glob', default='data/Conversations/*.txt')
     ap.add_argument('--heldout', default='data/Philosophy_Heldout/*.txt')
@@ -341,7 +407,7 @@ def main():
     out_path = out_dir / args.out_name
 
     # tokenizer
-    tok_path = (base / args.student_tokenizer).resolve()
+    tok_path = _resolve_tokenizer_path(base, args.student_tokenizer)
     if not tok_path.exists():
         raise FileNotFoundError(f"Tokenizer not found: {tok_path}")
     tok = Tokenizer.from_file(str(tok_path))
@@ -379,20 +445,7 @@ def main():
     if not isinstance(base_sd, dict):
         raise RuntimeError('Unsupported base checkpoint format for student initialization')
 
-    if 'token_embed.weight' in base_sd:
-        vocab = int(base_sd['token_embed.weight'].shape[0])
-        hidden = int(base_sd['token_embed.weight'].shape[1])
-    else:
-        vocab = int(tok.get_vocab_size())
-        hidden = int(base_meta.get('hidden_size') or base_meta.get('hidden') or 768)
-    try:
-        layers = int(base_meta.get('n_layers') or base_meta.get('layers') or max(int(k.split('.')[1]) for k in base_sd.keys() if k.startswith('blocks.') and '.attn.q.' in k) + 1)
-    except Exception:
-        layers = int(base_meta.get('n_layers') or base_meta.get('layers') or 12)
-    heads = int(base_meta.get('n_heads') or base_meta.get('heads') or (12 if hidden % 12 == 0 else 8))
-    max_len = int(base_meta.get('max_len') or 1024)
-
-    cfg = ArdorConfig(vocab_size=vocab, hidden_size=hidden, n_layers=layers, n_heads=heads, max_len=max_len, dropout=0.15, attn_dropout=0.15, resid_dropout=0.15)
+    cfg = _infer_base_cfg_from_state(base_sd, base_meta, tok)
     student = ArdorDecoder(cfg).to(device)
     student.load_state_dict(base_sd, strict=False)
 
