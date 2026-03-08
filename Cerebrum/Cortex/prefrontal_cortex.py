@@ -37,6 +37,7 @@ from Anterior_Cingulate import polish  # noqa: E402
 
 # Decoder model (Broca)
 from broca_decoder import ArdorDecoder  # noqa: E402
+from ardor_config import ArdorConfig
 
 
 # ── stopwords (fail-soft if nltk unavailable) ────────────────────────
@@ -492,6 +493,186 @@ def _introspect_model(model: torch.nn.Module, sd: Optional[Dict[str, torch.Tenso
 # ╔═══════════════════════════════════════════════════════════════════╗
 # ║                              ArdorCore                            ║
 # ╚═══════════════════════════════════════════════════════════════════╝
+
+MODEL_REGISTRY = {
+    "ArdorDecoder": ArdorDecoder,
+}
+
+ENCODER_REGISTRY = {
+    "ArdorEncoder": ArdorEncoder,
+}
+
+
+def _read_checkpoint_meta(raw) -> dict:
+    meta: Dict[str, Any] = {}
+    if isinstance(raw, torch.nn.Module):
+        if hasattr(raw, "model_config") and callable(raw.model_config):
+            try:
+                meta.update(raw.model_config() or {})
+            except Exception:
+                pass
+        meta.setdefault("arch", type(raw).__name__)
+        return dict(meta)
+
+    if not isinstance(raw, dict):
+        return meta
+
+    top_keys = [
+        "arch", "vocab_size", "hidden_size", "hidden", "n_layers", "layers", "n_heads", "heads",
+        "ff_mult", "max_len", "dropout", "attn_dropout", "resid_dropout", "layernorm_eps",
+        "use_rope", "rope_theta", "tokenizer_path", "tokenizer_vocab_size", "tokenizer_hash",
+        "tokenizer_sha256", "positional_encoding",
+    ]
+
+    for src in (raw.get("meta") if isinstance(raw.get("meta"), dict) else {},
+                raw.get("model_config") if isinstance(raw.get("model_config"), dict) else {},
+                raw.get("config") if isinstance(raw.get("config"), dict) else {},
+                raw):
+        if not isinstance(src, dict):
+            continue
+        for k in top_keys:
+            if k in src and k not in meta:
+                meta[k] = src[k]
+
+    cfg = raw.get("config")
+    if isinstance(cfg, dict):
+        meta["config"] = dict(cfg)
+
+    if "hidden_size" not in meta and "hidden" in meta:
+        meta["hidden_size"] = meta["hidden"]
+    if "n_layers" not in meta and "layers" in meta:
+        meta["n_layers"] = meta["layers"]
+    if "n_heads" not in meta and "heads" in meta:
+        meta["n_heads"] = meta["heads"]
+
+    if isinstance(meta.get("config"), dict):
+        c = meta["config"]
+        for k in ("vocab_size", "hidden_size", "hidden", "n_layers", "layers", "n_heads", "heads",
+                  "ff_mult", "max_len", "dropout", "attn_dropout", "resid_dropout", "layernorm_eps",
+                  "use_rope", "rope_theta"):
+            if k not in meta and k in c:
+                meta[k] = c[k]
+    return dict(meta)
+
+
+def _config_from_meta(meta: dict, *, default_vocab: int | None = None) -> ArdorConfig:
+    norm = dict(meta or {})
+    if "hidden_size" not in norm and "hidden" in norm:
+        norm["hidden_size"] = norm["hidden"]
+    if "n_layers" not in norm and "layers" in norm:
+        norm["n_layers"] = norm["layers"]
+    if "n_heads" not in norm and "heads" in norm:
+        norm["n_heads"] = norm["heads"]
+    if "vocab_size" not in norm and default_vocab is not None:
+        norm["vocab_size"] = int(default_vocab)
+
+    required = ["vocab_size", "hidden_size", "n_layers", "n_heads", "max_len"]
+    missing = [k for k in required if k not in norm]
+    if missing:
+        raise ValueError(f"Cannot build ArdorConfig from metadata: missing {', '.join(missing)}")
+
+    return ArdorConfig.from_dict(norm)
+
+
+def _resolve_state_dict_from_raw(raw) -> dict:
+    if isinstance(raw, dict):
+        for k in ("state_dict", "model_state_dict", "module", "model"):
+            v = raw.get(k)
+            if isinstance(v, dict) and any(isinstance(t, torch.Tensor) for t in v.values()):
+                return v
+    if isinstance(raw, dict) and any(isinstance(t, torch.Tensor) for t in raw.values()):
+        return raw
+    raise ValueError("Unsupported checkpoint format: cannot find a flat state_dict.")
+
+
+def _sha256_file(path: str) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _load_tokenizer_matching_vocab(tokenizer_path: Optional[str], want_vocab: int, checkpoint_meta: Optional[dict] = None) -> Tuple[Tokenizer, str]:
+    meta = checkpoint_meta or {}
+    seen: set[str] = set()
+    candidates: list[tuple[str, int, float, str]] = []
+
+    roots = [
+        str(REPO_ROOT / "Cerebrum" / "ProjectTokenizer" / "ardor_tokenizer"),
+        str(REPO_ROOT),
+        os.getcwd(),
+    ]
+    if tokenizer_path:
+        roots.insert(0, os.path.dirname(os.path.abspath(tokenizer_path)) or os.getcwd())
+    meta_tok = meta.get("tokenizer_path")
+    if isinstance(meta_tok, str) and meta_tok:
+        roots.insert(0, os.path.dirname(os.path.abspath(meta_tok)) or os.getcwd())
+
+    for r in roots:
+        rr = os.path.abspath(r)
+        if not os.path.isdir(rr):
+            continue
+        for patt in ("tokenizer*.json", "tokenizer.json"):
+            for p in glob.glob(os.path.join(rr, patt)):
+                ap = os.path.abspath(p)
+                if ap in seen:
+                    continue
+                seen.add(ap)
+                try:
+                    t = Tokenizer.from_file(ap)
+                    vocab = int(t.get_vocab_size())
+                    mtime = os.path.getmtime(ap)
+                    sha = _sha256_file(ap)
+                    candidates.append((ap, vocab, mtime, sha))
+                except Exception:
+                    continue
+
+    def pick_by_path(path: Optional[str]):
+        if not path:
+            return None
+        ap = os.path.abspath(path)
+        for c in candidates:
+            if c[0] == ap:
+                return c
+        return None
+
+    meta_sha = str(meta.get("tokenizer_sha256") or meta.get("tokenizer_hash") or "").strip().lower()
+
+    for c in (pick_by_path(tokenizer_path), pick_by_path(meta_tok)):
+        if c and c[1] == int(want_vocab):
+            return Tokenizer.from_file(c[0]), c[0]
+
+    if meta_sha:
+        for ap, vocab, _, sha in candidates:
+            if sha.lower() == meta_sha and vocab == int(want_vocab):
+                return Tokenizer.from_file(ap), ap
+
+    exact = [c for c in candidates if c[1] == int(want_vocab)]
+    if exact:
+        exact.sort(key=lambda x: x[2], reverse=True)
+        return Tokenizer.from_file(exact[0][0]), exact[0][0]
+
+    if candidates:
+        candidates.sort(key=lambda x: x[2], reverse=True)
+        return Tokenizer.from_file(candidates[0][0]), candidates[0][0]
+
+    raise FileNotFoundError(f"No tokenizer JSON found for vocab {want_vocab}")
+
+
+def _load_required_meta(model_path: str, tokenizer_path_hint: str | None) -> dict:
+    meta_path = Path(model_path).with_suffix('.meta.json')
+    if meta_path.exists():
+        try:
+            return json.loads(meta_path.read_text(encoding='utf-8'))
+        except Exception:
+            return {}
+    strict = os.environ.get("ARDOR_STRICT_META", "").strip().lower() in {"1", "true", "yes"}
+    if strict:
+        raise FileNotFoundError(f"Strict metadata mode enabled and meta file is missing: {meta_path}")
+    return {}
+
 class ArdorCore:
     def __init__(
         self,
@@ -508,31 +689,54 @@ class ArdorCore:
         self.enable_retrieval = bool(enable_retrieval)
 
         raw = torch.load(model_path, map_location=device)
-        sd_or_mod = _unwrap_state_dict(raw)
+        checkpoint_meta = _read_checkpoint_meta(raw)
+        file_meta = _load_required_meta(model_path, tokenizer_path)
+        if isinstance(file_meta, dict):
+            merged = dict(file_meta)
+            merged.update(checkpoint_meta)
+            checkpoint_meta = merged
 
         missing_list: Optional[List[str]] = None
         unexpected_list: Optional[List[str]] = None
 
-        if isinstance(sd_or_mod, torch.nn.Module):
-            self.model = sd_or_mod.to(device).eval()
+        # Path 1: full module checkpoint
+        if isinstance(raw, torch.nn.Module):
+            self.model = raw.to(device).eval()
+            model_sd = None
             try:
                 want_vocab = int(self.model.lm_head.weight.shape[0])
             except Exception:
                 want_vocab = int(self.model.token_embed.weight.shape[0])
-            model_sd = None
         else:
-            sd = sd_or_mod  # {name: tensor}
-            vocab, hidden, layers, maxlen = _infer_dims_from_state(sd)
-            heads = _best_heads(hidden, prefer=6)
+            sd = _resolve_state_dict_from_raw(raw)
 
-            model = ArdorDecoder(
-                vocab_size=vocab,
-                hidden=hidden,
-                layers=layers,
-                heads=heads,
-                max_len=maxlen,
-                dropout=0.12,
-            )
+            # Path 2: metadata-driven reconstruction
+            model = None
+            try:
+                arch = checkpoint_meta.get("arch") or checkpoint_meta.get("model")
+                if arch in MODEL_REGISTRY:
+                    cfg = _config_from_meta(checkpoint_meta)
+                    model = MODEL_REGISTRY[arch](cfg)
+            except Exception:
+                model = None
+
+            # Path 3: legacy inference fallback
+            if model is None:
+                vocab, hidden, layers, maxlen = _infer_dims_from_state(sd)
+                heads = _best_heads(hidden, prefer=6)
+                use_rope = "position_embed.weight" not in sd
+                cfg = ArdorConfig(
+                    vocab_size=vocab,
+                    hidden_size=hidden,
+                    n_layers=layers,
+                    n_heads=heads,
+                    max_len=maxlen,
+                    dropout=0.12,
+                    attn_dropout=0.12,
+                    resid_dropout=0.12,
+                    use_rope=use_rope,
+                )
+                model = ArdorDecoder(cfg)
 
             remapped = _remap_to_model_schema(sd, set(model.state_dict().keys()))
             try:
@@ -544,8 +748,8 @@ class ArdorCore:
                 print(f"[load] non-strict: missing={len(missing_list or [])} unexpected={len(unexpected_list or [])}")
 
             self.model = model.to(device).eval()
-            want_vocab = int(vocab)
             model_sd = remapped
+            want_vocab = int(getattr(self.model, "vocab_size", 0) or _infer_dims_from_state(sd)[0])
 
         # Tie head ⇄ embedding if shapes agree (saves params / consistency)
         try:
@@ -557,59 +761,10 @@ class ArdorCore:
 
         # ---------- tokenizer that matches vocab ----------
         requested_tok = tokenizer_path if (tokenizer_path and os.path.isfile(tokenizer_path)) else None
-
-        def _find_tok(start_dir: Optional[str], want: int) -> Optional[str]:
-            roots: List[str] = []
-            if start_dir and os.path.isdir(start_dir):
-                roots.append(start_dir)
-            roots += [
-                str(REPO_ROOT / "Cerebrum" / "ProjectTokenizer" / "ardor_tokenizer"),
-                "../Cerebrum/ProjectTokenizer/ardor_tokenizer",
-                "../ProjectTokenizer/ardor_tokenizer",
-                "./Cerebrum/ProjectTokenizer/ardor_tokenizer",
-                "./ProjectTokenizer/ardor_tokenizer",
-            ]
-            seen, cands = set(), []
-            for r in roots:
-                rr = os.path.abspath(r)
-                if not os.path.isdir(rr):
-                    continue
-                for p in glob.glob(os.path.join(rr, "tokenizer_v*.json")):
-                    if p in seen:
-                        continue
-                    seen.add(p)
-                    try:
-                        t = Tokenizer.from_file(p)
-                        if t.get_vocab_size() == want:
-                            cands.append(p)
-                    except Exception:
-                        pass
-
-            # Prefer explicit path first if it matches; else best candidate
-            if requested_tok:
-                try:
-                    t0 = Tokenizer.from_file(requested_tok)
-                    if t0.get_vocab_size() == want:
-                        return requested_tok
-                    else:
-                        print(
-                            f"[tok] override provided but vocab mismatch: {requested_tok} "
-                            f"(vocab={t0.get_vocab_size()}) != model({want}). Searching for a match…"
-                        )
-                except Exception as _e:
-                    print(f"[tok] failed to open override {requested_tok}: {_e}. Searching for a match…")
-
-            return cands[0] if cands else None
-
-        tok_path = _find_tok(os.path.dirname(requested_tok) if requested_tok else None, want_vocab)
-        if not tok_path:
-            raise FileNotFoundError(
-                f"No tokenizer with vocab size {want_vocab} found. "
-                "Place tokenizer_v*.json under ProjectTokenizer/ardor_tokenizer."
-            )
+        tokenizer_obj, tok_path = _load_tokenizer_matching_vocab(requested_tok, want_vocab, checkpoint_meta)
 
         self.tokenizer_requested_path = requested_tok
-        self.tokenizer = Tokenizer.from_file(tok_path)
+        self.tokenizer = tokenizer_obj
         try:
             name = type(self.tokenizer.model).__name__.lower()
             # Attach a ByteLevel decoder only for actual BPE models and if no decoder is already set.
@@ -1022,6 +1177,35 @@ class ArdorCore:
     def model_schema(self) -> Dict[str, Any]:
         return dict(self.schema)
 
+
+
+
+_GLOBAL_CORE: Optional[ArdorCore] = None
+_GLOBAL_CORE_KEY: Optional[tuple] = None
+
+
+def get_global_core(
+    model_path: str,
+    tokenizer_path: Optional[str],
+    device: str = "cpu",
+    enable_retrieval: bool = False,
+    encoder_ckpt: Optional[str] = None,
+    max_len: int = 300,
+    force_reload: bool = False,
+) -> ArdorCore:
+    del encoder_ckpt  # reserved for compatibility
+    global _GLOBAL_CORE, _GLOBAL_CORE_KEY
+    key = (os.path.abspath(model_path), os.path.abspath(tokenizer_path) if tokenizer_path else None, device, bool(enable_retrieval), int(max_len))
+    if force_reload or _GLOBAL_CORE is None or _GLOBAL_CORE_KEY != key:
+        _GLOBAL_CORE = ArdorCore(
+            model_path=model_path,
+            tokenizer_path=tokenizer_path,
+            device=device,
+            max_len=max_len,
+            enable_retrieval=enable_retrieval,
+        )
+        _GLOBAL_CORE_KEY = key
+    return _GLOBAL_CORE
 
 # ╔═══════════════════════════════════════════════════════════════════╗
 # ║                               CLI                                 ║

@@ -117,6 +117,10 @@ def resolve_ArdorCore():
     return None
 
 ArdorCoreCls = resolve_ArdorCore()
+try:
+    from prefrontal_cortex import get_global_core
+except Exception:
+    get_global_core = None
 
 # ---------------- intents ----------------
 class Intent:
@@ -994,8 +998,10 @@ class ArdorGUI(tk.Tk):
                 self.log("❌ ArdorCore class not found/callable.", tag='sys'); return False
 
             try:
-                self.core = ArdorCoreCls(model_path=path, tokenizer_path=tok if tok and os.path.isfile(tok) else None,
-                                         device='cpu')
+                if callable(get_global_core):
+                    self.core = get_global_core(model_path=path, tokenizer_path=tok if tok and os.path.isfile(tok) else None, device='cpu', enable_retrieval=True, encoder_ckpt=None, max_len=getattr(self, 'max_len', 300), force_reload=True)
+                else:
+                    self.core = ArdorCoreCls(model_path=path, tokenizer_path=tok if tok and os.path.isfile(tok) else None, device='cpu')
                 desc = self.core.model_schema() if hasattr(self.core, "model_schema") else getattr(self.core, "schema",
                                                                                                     {}) or {}
                 mis = desc.get("mismatch") or {}
@@ -1016,7 +1022,10 @@ class ArdorGUI(tk.Tk):
                 tok_fallback = self.resolve_tokenizer_path()
                 if not tok_fallback:
                     self.log("❌ No tokenizer found in fallback resolver.", tag='sys'); return False
-                self.core = ArdorCoreCls(model_path=path, tokenizer_path=tok_fallback, device='cpu')
+                if callable(get_global_core):
+                    self.core = get_global_core(model_path=path, tokenizer_path=tok_fallback, device='cpu', enable_retrieval=True, encoder_ckpt=None, max_len=getattr(self, 'max_len', 300), force_reload=True)
+                else:
+                    self.core = ArdorCoreCls(model_path=path, tokenizer_path=tok_fallback, device='cpu')
 
             self.current_model = os.path.basename(path)
 
