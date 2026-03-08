@@ -1,5 +1,5 @@
 from __future__ import annotations
-import argparse, os, sys, math, random, glob, time, re
+import argparse, os, sys, math, random, glob, time, re, hashlib
 from pathlib import Path
 from typing import List, Tuple, Dict, Optional, Iterable, Callable
 from torch.amp import GradScaler
@@ -272,15 +272,16 @@ def find_latest_epoch_ckpt(out_dir: Path) -> tuple[Optional[Path], int]:
 def main():
     ap = argparse.ArgumentParser()
     # Hard-coded defaults (overrideable)
-    ap.add_argument('--base', default='/workspace/Ardor')
-    ap.add_argument('--student_ckpt', default='runs/omega_quality_refit/Ardor_Orion.pt')
-    ap.add_argument('--student_tokenizer', default='tokenizer_v9.json')
-    ap.add_argument('--philo_glob', default='Dataset/Philosophy/*.txt')
-    ap.add_argument('--dialog_glob', default='Dataset/Conversations/*.txt')
-    ap.add_argument('--heldout', default='Philosophy_Heldout/*.txt')
+    repo_root = Path(__file__).resolve().parents[2]
+    ap.add_argument('--base', default=str(repo_root))
+    ap.add_argument('--student_ckpt', default='artifacts/models/Ardor_Orion.pt')
+    ap.add_argument('--student_tokenizer', default='Cerebrum/ProjectTokenizer/ardor_tokenizer/tokenizer_v9.json')
+    ap.add_argument('--philo_glob', default='data/Philosophy/*.txt')
+    ap.add_argument('--dialog_glob', default='data/Conversations/*.txt')
+    ap.add_argument('--heldout', default='data/Philosophy_Heldout/*.txt')
     ap.add_argument('--teacher_id', default='mistralai/Mistral-7B-v0.1')
     ap.add_argument('--teacher_adapter_dir', default='runs/mistral_pipeline/20250831_210439/phase1_finetune')
-    ap.add_argument('--out_dir', default='runs/rem_omega')
+    ap.add_argument('--out_dir', default='artifacts/models/rem_omega')
     ap.add_argument('--out_name', default='Ardor_Orion_REM.pt')
 
     # REM params
@@ -363,23 +364,36 @@ def main():
 
     # Load student (base)
     sys.path.append(str(base))
+    sys.path.append(str((base / "Cerebrum" / "Cortex").resolve()))
     from broca_decoder import ArdorDecoder
-    base_sd = torch.load((base / args.student_ckpt).resolve(), map_location='cpu')
+    from ardor_config import ArdorConfig
+    base_raw = torch.load((base / args.student_ckpt).resolve(), map_location='cpu')
 
-    # infer shapes
-    if 'token_embed.weight' in base_sd:
-        vocab = base_sd['token_embed.weight'].shape[0]
-        hidden = base_sd['token_embed.weight'].shape[1]
+    if isinstance(base_raw, dict):
+        base_sd = base_raw.get('state_dict') or base_raw.get('model') or base_raw
+        base_meta = dict(base_raw.get('config') or base_raw.get('meta') or {})
     else:
-        vocab = tok.get_vocab_size();
-        hidden = 768
-    try:
-        layers = max(int(k.split('.')[1]) for k in base_sd.keys() if k.startswith('blocks.') and '.attn.q.' in k) + 1
-    except Exception:
-        layers = 12
-    heads = 12 if hidden % 12 == 0 else 8
+        base_sd = base_raw
+        base_meta = {}
 
-    student = ArdorDecoder(vocab, hidden, layers, heads).to(device)
+    if not isinstance(base_sd, dict):
+        raise RuntimeError('Unsupported base checkpoint format for student initialization')
+
+    if 'token_embed.weight' in base_sd:
+        vocab = int(base_sd['token_embed.weight'].shape[0])
+        hidden = int(base_sd['token_embed.weight'].shape[1])
+    else:
+        vocab = int(tok.get_vocab_size())
+        hidden = int(base_meta.get('hidden_size') or base_meta.get('hidden') or 768)
+    try:
+        layers = int(base_meta.get('n_layers') or base_meta.get('layers') or max(int(k.split('.')[1]) for k in base_sd.keys() if k.startswith('blocks.') and '.attn.q.' in k) + 1)
+    except Exception:
+        layers = int(base_meta.get('n_layers') or base_meta.get('layers') or 12)
+    heads = int(base_meta.get('n_heads') or base_meta.get('heads') or (12 if hidden % 12 == 0 else 8))
+    max_len = int(base_meta.get('max_len') or 1024)
+
+    cfg = ArdorConfig(vocab_size=vocab, hidden_size=hidden, n_layers=layers, n_heads=heads, max_len=max_len, dropout=0.15, attn_dropout=0.15, resid_dropout=0.15)
+    student = ArdorDecoder(cfg).to(device)
     student.load_state_dict(base_sd, strict=False)
 
     # Reference state for L2-SP (anchor = base checkpoint)
@@ -407,11 +421,11 @@ def main():
     if real_loader is None:
         # fallback: try philosophy and conversation shard dirs
         shard_paths = []
-        for d in [base / 'Dataset' / 'Philosophy', base / 'Dataset' / 'Conversations']:
+        for d in [base / 'artifacts' / 'datasets' / 'Philosophy', base / 'artifacts' / 'datasets' / 'Conversations']:
             if d.is_dir():
                 shard_paths.extend(sorted(d.rglob('*.pt')))
         if not shard_paths:
-            raise SystemExit('❌ No data for REM: no .txt matched and no .pt shards found in Dataset.')
+            raise SystemExit('❌ No data for REM: no .txt matched and no .pt shards found in artifacts/datasets.')
         print(f"[rem] Falling back to .pt shards: {len(shard_paths)} files")
         real_ds = TokenShardDataset(shard_paths, ctx_len=1024)
         real_loader = DataLoader(
@@ -496,7 +510,10 @@ def main():
         ck_path = None
 
     if ck_path is not None and ck_path.exists():
-        resume_sd = torch.load(ck_path, map_location='cpu')
+        resume_raw = torch.load(ck_path, map_location='cpu')
+        resume_sd = resume_raw.get('state_dict') if isinstance(resume_raw, dict) else resume_raw
+        if isinstance(resume_raw, dict) and isinstance(resume_raw.get('model'), dict) and not isinstance(resume_sd, dict):
+            resume_sd = resume_raw.get('model')
         student.load_state_dict(resume_sd, strict=False)
         # parse epoch number from filename
         m = re.search(r"epoch_(\d+)", ck_path.stem)
@@ -508,7 +525,10 @@ def main():
     if use_swa:
         if explicit_swa_path and explicit_swa_path.exists():
             try:
-                swa_sd = torch.load(explicit_swa_path, map_location='cpu')
+                swa_raw = torch.load(explicit_swa_path, map_location='cpu')
+                swa_sd = swa_raw.get('state_dict') if isinstance(swa_raw, dict) else swa_raw
+                if isinstance(swa_raw, dict) and isinstance(swa_raw.get('model'), dict) and not isinstance(swa_sd, dict):
+                    swa_sd = swa_raw.get('model')
                 swa_model.load_state_dict(swa_sd, strict=False)
                 resume_msg += f"[resume] Loaded SWA snapshot from {explicit_swa_path.name}\n"
             except Exception as e:
@@ -517,7 +537,10 @@ def main():
             swa_default = out_dir / "swa_snapshot.pt"
             if swa_default.exists():
                 try:
-                    swa_sd = torch.load(swa_default, map_location='cpu')
+                    swa_raw = torch.load(swa_default, map_location='cpu')
+                    swa_sd = swa_raw.get('state_dict') if isinstance(swa_raw, dict) else swa_raw
+                    if isinstance(swa_raw, dict) and isinstance(swa_raw.get('model'), dict) and not isinstance(swa_sd, dict):
+                        swa_sd = swa_raw.get('model')
                     swa_model.load_state_dict(swa_sd, strict=False)
                     resume_msg += f"[resume] Loaded SWA snapshot from swa_snapshot.pt\n"
                 except Exception as e:
@@ -542,6 +565,38 @@ def main():
     print(f"[cfg] epochs={args.rem_epochs} batch={args.rem_batch} grad_acc={args.grad_acc} "
           f"lr={args.rem_lr:.2e} swa={args.swa} l2sp={args.l2sp_lambda} ul={args.ul_weight} rank={args.rank_lambda} "
           f"steps/epoch={steps_per_epoch} (effective {eff_steps_per_epoch}) updates/epoch={updates_per_epoch}")
+
+
+
+    def _checkpoint_payload(model_obj):
+        mm = model_obj.module if hasattr(model_obj, 'module') else model_obj
+        sd = mm.state_dict()
+        if hasattr(mm, 'model_config'):
+            cfg = mm.model_config()
+        elif hasattr(mm, 'cfg') and hasattr(mm.cfg, 'to_dict'):
+            cfg = mm.cfg.to_dict()
+        else:
+            cfg = {}
+        arch = cfg.get('arch') if isinstance(cfg, dict) else None
+        if not arch:
+            arch = type(mm).__name__
+        tok_sha = ''
+        try:
+            tok_sha = hashlib.sha256(Path(tok_path).read_bytes()).hexdigest()
+        except Exception:
+            tok_sha = ''
+        payload = {
+            'state_dict': sd,
+            'model': sd,
+            'arch': arch,
+            'config': cfg,
+            'tokenizer_path': str(tok_path),
+            'tokenizer_vocab_size': int(tok.get_vocab_size()),
+            'tokenizer_sha256': tok_sha,
+            'positional_encoding': cfg.get('positional_encoding') if isinstance(cfg, dict) else None,
+            'meta': cfg if isinstance(cfg, dict) else {},
+        }
+        return payload
 
     # --------------------------- TRAIN ---------------------------
     global_step = 0
@@ -716,12 +771,11 @@ def main():
 
         # checkpoint
         ck = out_dir / f'epoch_{ep + 1:02d}.pt'
-        torch.save(student.state_dict(), ck)
+        torch.save(_checkpoint_payload(student), ck)
         print('[save] epoch ckpt ->', ck)
 
         if use_swa and swa_model is not None:
-            torch.save(swa_model.module.state_dict() if hasattr(swa_model, 'module') else swa_model.state_dict(),
-                       out_dir / 'swa_snapshot.pt')
+            torch.save(_checkpoint_payload(swa_model), out_dir / 'swa_snapshot.pt')
 
     # finalize SWA
     final_model = student
@@ -737,8 +791,7 @@ def main():
 
     # save final
     final_path = out_path
-    torch.save(final_model.module.state_dict() if hasattr(final_model, 'module') else final_model.state_dict(),
-               final_path)
+    torch.save(_checkpoint_payload(final_model), final_path)
     print('[done] saved final REM model ->', final_path)
 
 

@@ -8,12 +8,16 @@ from tqdm import tqdm
 # Config (edit as needed)
 # =========================
 ROOT = Path(__file__).resolve().parent
-TOKENIZER = ROOT / ".." / "ProjectTokenizer" / "ardor_tokenizer" / "tokenizer_v8.json"
-OUT_DIR   = ROOT / ".." / "Dataset" / "Conversations"  # choose your target folder
+REPO_ROOT = ROOT.parents[1]
+DATA_DIR = REPO_ROOT / "data"
+ARTIFACTS_DATASETS_DIR = REPO_ROOT / "artifacts" / "datasets"
+
+TOKENIZER = REPO_ROOT / "Cerebrum" / "ProjectTokenizer" / "ardor_tokenizer" / "tokenizer_v8.json"
+OUT_DIR   = ARTIFACTS_DATASETS_DIR / "Conversations"
 
 CONV_FILES = [
-    Path(r"C:\Users\adm\PycharmProjects\ProjectArdor\Cerebrum\Training Data\ConversationsOut\Conversations_00001.txt"),
-    Path(r"C:\Users\adm\PycharmProjects\ProjectArdor\Cerebrum\Training Data\ConversationsOut\Conversations_00002.txt"),
+    DATA_DIR / "Training Data" / "ConversationsOut" / "Conversations_00001.txt",
+    DATA_DIR / "Training Data" / "ConversationsOut" / "Conversations_00002.txt",
 ]
 
 # Conversation parsing format

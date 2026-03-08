@@ -48,6 +48,11 @@ def _ardor_root() -> Path:
     return Path(__file__).resolve().parent
 
 ROOT_DIR: Path = (RUNTIME_PATHS.ROOT if RUNTIME_PATHS else _ardor_root()).resolve()
+ARTIFACTS_DIR = ROOT_DIR / "artifacts"
+ARTIFACTS_MODELS_DIR = ARTIFACTS_DIR / "models"
+ARTIFACTS_REM_DIR = ARTIFACTS_DIR / "rem"
+ARTIFACTS_MODELS_DIR.mkdir(parents=True, exist_ok=True)
+ARTIFACTS_REM_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------- core import ----------------
 from importlib.machinery import SourceFileLoader
@@ -112,6 +117,10 @@ def resolve_ArdorCore():
     return None
 
 ArdorCoreCls = resolve_ArdorCore()
+try:
+    from prefrontal_cortex import get_global_core
+except Exception:
+    get_global_core = None
 
 # ---------------- intents ----------------
 class Intent:
@@ -473,7 +482,9 @@ class HUD(tk.Canvas):
 DECODE_CFG = {"temperature": 0.70, "top_p": 0.90, "rep_penalty": 1.15, "ngram": 4}
 
 WIN_MODELS_PATH = Path(r"C:\Users\adm\PycharmProjects\ProjectArdor\Cerebrum\Models\Ardor")
-if WIN_MODELS_PATH.exists():
+if (ARTIFACTS_MODELS_DIR).exists():
+    MODELS_DIR = str(ARTIFACTS_MODELS_DIR.resolve())
+elif WIN_MODELS_PATH.exists():
     MODELS_DIR = str(WIN_MODELS_PATH.resolve())
 else:
     MODELS_DIR = str((ROOT_DIR / "Cerebrum" / "Models" / "Ardor").resolve())
@@ -846,12 +857,20 @@ class ArdorGUI(tk.Tk):
 
     # ----- model mgmt
     def list_models(self):
-        try:
-            pts=[f for f in os.listdir(MODELS_DIR) if f.lower().endswith('.pt')]
-            pts.sort(key=lambda n: os.path.getmtime(os.path.join(MODELS_DIR, n)), reverse=True)
-            return pts
-        except Exception:
-            return []
+        dirs = [Path(MODELS_DIR), ROOT_DIR / "Cerebrum" / "Models" / "Ardor"]
+        seen = {}
+        for d in dirs:
+            try:
+                if not d.is_dir():
+                    continue
+                for p in d.glob("*.pt"):
+                    seen[p.name] = str(p.resolve())
+            except Exception:
+                continue
+        names = list(seen.keys())
+        names.sort(key=lambda n: os.path.getmtime(seen[n]), reverse=True)
+        self._model_name_to_path = seen
+        return names
 
     def update_model_dropdown(self):
         models=self.list_models()
@@ -862,7 +881,7 @@ class ArdorGUI(tk.Tk):
     def on_select_model(self):
         name = self.model_var.get().strip()
         if not name: return
-        path=os.path.join(MODELS_DIR, name)
+        path=getattr(self, "_model_name_to_path", {}).get(name, os.path.join(MODELS_DIR, name))
         if not os.path.isfile(path):
             self.log(f"⚠️ Not found: {path}", tag='sys'); return
         tok_path = self.get_selected_tokenizer_path()
@@ -871,7 +890,10 @@ class ArdorGUI(tk.Tk):
     def find_latest_model(self):
         d=MODELS_DIR
         if not os.path.isdir(d): return None
-        pts=[os.path.join(d,f) for f in os.listdir(d) if f.endswith('.pt')]
+        pts=[]
+        for lookup in [Path(d), ROOT_DIR / "Cerebrum" / "Models" / "Ardor"]:
+            if lookup.is_dir():
+                pts.extend(str(p.resolve()) for p in lookup.glob("*.pt"))
         return max(pts, key=lambda p: os.path.getmtime(p)) if pts else None
 
     def resolve_tokenizer_path(self):
@@ -976,8 +998,10 @@ class ArdorGUI(tk.Tk):
                 self.log("❌ ArdorCore class not found/callable.", tag='sys'); return False
 
             try:
-                self.core = ArdorCoreCls(model_path=path, tokenizer_path=tok if tok and os.path.isfile(tok) else None,
-                                         device='cpu')
+                if callable(get_global_core):
+                    self.core = get_global_core(model_path=path, tokenizer_path=tok if tok and os.path.isfile(tok) else None, device='cpu', enable_retrieval=True, encoder_ckpt=None, max_len=getattr(self, 'max_len', 300), force_reload=True)
+                else:
+                    self.core = ArdorCoreCls(model_path=path, tokenizer_path=tok if tok and os.path.isfile(tok) else None, device='cpu')
                 desc = self.core.model_schema() if hasattr(self.core, "model_schema") else getattr(self.core, "schema",
                                                                                                     {}) or {}
                 mis = desc.get("mismatch") or {}
@@ -998,7 +1022,10 @@ class ArdorGUI(tk.Tk):
                 tok_fallback = self.resolve_tokenizer_path()
                 if not tok_fallback:
                     self.log("❌ No tokenizer found in fallback resolver.", tag='sys'); return False
-                self.core = ArdorCoreCls(model_path=path, tokenizer_path=tok_fallback, device='cpu')
+                if callable(get_global_core):
+                    self.core = get_global_core(model_path=path, tokenizer_path=tok_fallback, device='cpu', enable_retrieval=True, encoder_ckpt=None, max_len=getattr(self, 'max_len', 300), force_reload=True)
+                else:
+                    self.core = ArdorCoreCls(model_path=path, tokenizer_path=tok_fallback, device='cpu')
 
             self.current_model = os.path.basename(path)
 
@@ -1233,7 +1260,7 @@ class ArdorGUI(tk.Tk):
 
     # ----- REM status -----
     def simulate_rem_sleep(self):
-        path="rem_status.json"
+        path=str((ARTIFACTS_REM_DIR / "rem_status.json").resolve())
         while True:
             if os.path.exists(path):
                 try:
