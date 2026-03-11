@@ -1,3 +1,4 @@
+import math
 import torch
 import torch.nn as nn
 from fronto_parietal_loop import TransformerBlock
@@ -28,7 +29,11 @@ class ArdorDecoder(nn.Module):
         self.rope_theta = float(config.rope_theta)
 
         self.token_embed = nn.Embedding(self.vocab_size, self.hidden_size)
-        self.position_embed = nn.Embedding(self.max_len, self.hidden_size)
+
+        self.position_embed = None
+        if not self.use_rope:
+            self.position_embed = nn.Embedding(self.max_len, self.hidden_size)
+
         self.drop = nn.Dropout(self.dropout_p)
 
         self.blocks = nn.ModuleList([
@@ -40,6 +45,26 @@ class ArdorDecoder(nn.Module):
         self.norm = nn.LayerNorm(self.hidden_size, eps=self.layernorm_eps)
         self.lm_head = nn.Linear(self.hidden_size, self.vocab_size, bias=False)
         self.lm_head.weight = self.token_embed.weight
+
+        self.apply(self._init_weights)
+        self._scale_residual_projections()
+
+    def _init_weights(self, module: nn.Module) -> None:
+        if isinstance(module, nn.Embedding):
+            nn.init.normal_(module.weight, mean=0.0, std=0.02)
+        elif isinstance(module, nn.Linear):
+            nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.LayerNorm):
+            nn.init.ones_(module.weight)
+            nn.init.zeros_(module.bias)
+
+    def _scale_residual_projections(self) -> None:
+        scale = 1.0 / math.sqrt(2.0 * self.num_layers)
+        for block in self.blocks:
+            block.attn.out.weight.data.mul_(scale)
+            block.ff[2].weight.data.mul_(scale)
 
     def model_config(self) -> dict:
         return {
@@ -64,8 +89,12 @@ class ArdorDecoder(nn.Module):
 
     def forward(self, idx: torch.LongTensor) -> torch.Tensor:
         B, T = idx.shape
-        pos = torch.arange(0, T, device=idx.device).unsqueeze(0)
-        x = self.token_embed(idx) + self.position_embed(pos)
+        x = self.token_embed(idx)
+
+        if self.position_embed is not None:
+            pos = torch.arange(0, T, device=idx.device).unsqueeze(0)
+            x = x + self.position_embed(pos)
+
         x = self.drop(x)
         for blk in self.blocks:
             x = blk(x, mask=None)
