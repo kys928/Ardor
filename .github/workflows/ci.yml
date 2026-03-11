@@ -1,0 +1,47 @@
+name: Ardor CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: requirements-ci.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-ci.txt
+
+      - name: Compile important files
+        run: |
+          python -m py_compile Cerebrum/Cortex/broca_decoder.py
+          python -m py_compile Cerebrum/Cortex/posterior_parietal_cortex.py
+          python -m py_compile Cerebrum/Cortex/fronto_parietal_loop.py
+          python -m py_compile Cerebrum/Cortex/dorsolateral_prefrontal_cortex.py
+          python -m py_compile Cerebrum/Cortex/thalamic_utils.py
+          python -m py_compile Cerebrum/Cortex/prefrontal_cortex.py
+          python -m py_compile Cerebrum/Cortex/neural_plasticity_training.py
+          python -m py_compile Cerebrum/CorticalIntegration/REM.py
+          python -m py_compile Praetor/GUI_Cortex.py
+
+      - name: Run Ardor smoke test
+        run: |
+          python scripts/ci_smoke.py
