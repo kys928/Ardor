@@ -3,3 +3,4 @@ tokenizers
 tqdm
 nltk
 numpy
+pytest

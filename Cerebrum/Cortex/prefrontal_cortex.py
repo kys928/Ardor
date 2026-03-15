@@ -401,17 +401,26 @@ def _remap_to_model_schema(sd: dict, model_state_keys: set[str]) -> dict:
 def _infer_dims_from_state(sd: Dict[str, torch.Tensor]) -> Tuple[int, int, int, int]:
     """Return vocab, hidden, layers, max_len using only tensor shapes/names."""
 
-    # (1) pick the largest-row 2D non-square matrix as [vocab, hidden]
-    twoD = [(k, t) for k, t in sd.items() if isinstance(t, torch.Tensor) and t.ndim == 2]
-    nonsq = [(k, t) for k, t in twoD if int(t.shape[0]) != int(t.shape[1])]
-    pool = nonsq or twoD
-    if not pool:
-        raise KeyError("No 2D tensors found in checkpoint; cannot infer vocab/hidden.")
-    _, t_big = max(pool, key=lambda kv: int(kv[1].shape[0]))
-    vocab = int(t_big.shape[0])
-    hidden = int(t_big.shape[1])
+    # (1) prefer explicit token/lm-head tensors as [vocab, hidden]
+    for k in ("token_embed.weight", "lm_head.weight", "to_vocab.weight"):
+        t = sd.get(k)
+        if isinstance(t, torch.Tensor) and t.ndim == 2:
+            vocab = int(t.shape[0])
+            hidden = int(t.shape[1])
+            break
+    else:
+        # fallback: pick the largest-row 2D non-square matrix as [vocab, hidden]
+        twoD = [(k, t) for k, t in sd.items() if isinstance(t, torch.Tensor) and t.ndim == 2]
+        nonsq = [(k, t) for k, t in twoD if int(t.shape[0]) != int(t.shape[1])]
+        pool = nonsq or twoD
+        if not pool:
+            raise KeyError("No 2D tensors found in checkpoint; cannot infer vocab/hidden.")
+        _, t_big = max(pool, key=lambda kv: int(kv[1].shape[0]))
+        vocab = int(t_big.shape[0])
+        hidden = int(t_big.shape[1])
 
     # (2) infer layers from attention/MLP weights with block indices
+    twoD = [(k, t) for k, t in sd.items() if isinstance(t, torch.Tensor) and t.ndim == 2]
     patts = [r"(?:layers|blocks|h|layer)\.(\d+)\."]
     idxs: List[int] = []
     for k in sd.keys():
