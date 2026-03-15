@@ -45,3 +45,7 @@ jobs:
       - name: Run Ardor smoke test
         run: |
           python scripts/ci_smoke.py
+
+      - name: Run pytest
+        run: |
+          pytest -q tests
