@@ -343,8 +343,8 @@
 #         status = "ok" if ok else "corrupt"
 #         if verbose:
 #             print(f"{status.upper():8} {p.name}  ({kind}) {'' if ok else reason}")
-#         return {"file": str(p), "status": status, "kind": kind, "reason": reason}
-#
+#          return {"file": str(p), "status": status, "kind": kind, "reason": reason}
+
 # def main():
 #     ap = argparse.ArgumentParser(description="Scan .pt shards and list corrupted files.")
 #     ap.add_argument("--dir", default="Dataset/Conversations", help="Root directory to scan")
@@ -647,31 +647,31 @@
 #
 # print('Wrote:', dst)
 
-
-import torch, os
-
-IN  = r"C:\Users\adm\PycharmProjects\ProjectArdor\Cerebrum\Models\Ardor\Ardor_Sigma2_weights.LoRA.MERGED.pt"
-OUT = r"C:\Users\adm\PycharmProjects\ProjectArdor\Cerebrum\Models\Ardor\Ardor_GammaΓ.pt"
-
-sd = torch.load(IN, map_location="cpu")
-if "state_dict" in sd:  # handle nested formats
-    sd = sd["state_dict"]
-
-# strip torch.compile prefix
-if any(k.startswith("_orig_mod.") for k in sd):
-    sd = {k.replace("_orig_mod.", "", 1): v for k, v in sd.items()}
-
-# make sure a head key exists (your model uses to_vocab; add an alias if missing)
-if "to_vocab.weight" not in sd and "lm_head.weight" in sd:
-    sd["to_vocab.weight"] = sd["lm_head.weight"]
-if "lm_head.weight" not in sd and "to_vocab.weight" in sd:
-    sd["lm_head.weight"] = sd["to_vocab.weight"]
-
-# sanity prints
-print("fixed has token_embed.weight? ", "token_embed.weight" in sd)
-print("fixed has to_vocab.weight?    ", "to_vocab.weight" in sd)
-print("fixed has lm_head.weight?     ", "lm_head.weight" in sd)
-
-torch.save(sd, OUT)
-print("✅ wrote", OUT)
+#
+# import torch, os
+#
+# IN  = r"C:\Users\adm\PycharmProjects\ProjectArdor\Cerebrum\Models\Ardor\Ardor_Sigma2_weights.LoRA.MERGED.pt"
+# OUT = r"C:\Users\adm\PycharmProjects\ProjectArdor\Cerebrum\Models\Ardor\Ardor_GammaΓ.pt"
+#
+# sd = torch.load(IN, map_location="cpu")
+# if "state_dict" in sd:  # handle nested formats
+#     sd = sd["state_dict"]
+#
+# # strip torch.compile prefix
+# if any(k.startswith("_orig_mod.") for k in sd):
+#     sd = {k.replace("_orig_mod.", "", 1): v for k, v in sd.items()}
+#
+# # make sure a head key exists (your model uses to_vocab; add an alias if missing)
+# if "to_vocab.weight" not in sd and "lm_head.weight" in sd:
+#     sd["to_vocab.weight"] = sd["lm_head.weight"]
+# if "lm_head.weight" not in sd and "to_vocab.weight" in sd:
+#     sd["lm_head.weight"] = sd["to_vocab.weight"]
+#
+# # sanity prints
+# print("fixed has token_embed.weight? ", "token_embed.weight" in sd)
+# print("fixed has to_vocab.weight?    ", "to_vocab.weight" in sd)
+# print("fixed has lm_head.weight?     ", "lm_head.weight" in sd)
+#
+# torch.save(sd, OUT)
+# print("✅ wrote", OUT)
 
