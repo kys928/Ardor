@@ -25,6 +25,8 @@ os.environ.setdefault("RUST_BACKTRACE", "1")
 
 # NOTE: Encoder import kept, but retrieval is OFF by default and the encoder is not instantiated unless enabled.
 from posterior_parietal_cortex import ArdorEncoder
+from broca_decoder import ArdorDecoder  # noqa: E402
+from ardor_config import ArdorConfig
 
 import torch
 import torch.nn.functional as F
@@ -36,8 +38,11 @@ sys.path.append("../Cerebrum/LanguageProcessing")
 from Anterior_Cingulate import polish  # noqa: E402
 
 # Decoder model (Broca)
-from broca_decoder import ArdorDecoder  # noqa: E402
-from ardor_config import ArdorConfig
+from backends.factory import load_backend
+from backends.retrieval import load_retrieval_backend
+from loaders.native_tokenizer import generic_tokenizer_candidates, load_tokenizer_matching_vocab as _loader_match_tokenizer
+from loaders.native_checkpoint import load_native_decoder as _loader_load_native_decoder
+from loaders.native_encoder import load_encoder_cached as _loader_load_encoder_cached
 
 
 # ── stopwords (fail-soft if nltk unavailable) ────────────────────────
@@ -688,25 +693,7 @@ def _load_required_meta(model_path: str, tokenizer_path_hint: str | None) -> dic
 
 
 def _generic_tokenizer_candidates() -> List[str]:
-    roots = [
-        REPO_ROOT / "Cerebrum" / "ProjectTokenizer" / "ardor_tokenizer",
-        REPO_ROOT / "ProjectTokenizer" / "ardor_tokenizer",
-        Path(os.getcwd()),
-    ]
-    seen: set[str] = set()
-    out: List[str] = []
-    for root in roots:
-        rr = root.resolve() if root.exists() else root
-        if not rr.exists() or not rr.is_dir():
-            continue
-        for patt in ("tokenizer*.json", "tokenizer.json"):
-            for fp in rr.glob(patt):
-                ap = str(fp.resolve())
-                if ap not in seen:
-                    seen.add(ap)
-                    out.append(ap)
-    out.sort(key=lambda p: os.path.getmtime(p), reverse=True)
-    return out
+    return generic_tokenizer_candidates(REPO_ROOT)
 
 
 def _describe_model(model: torch.nn.Module, mismatch: Optional[dict] = None) -> Dict[str, Any]:
@@ -858,6 +845,20 @@ def _load_encoder_cached(encoder_ckpt: Optional[str], device: str, fallback_deco
     return enc.to(device).eval()
 
 
+# Redirected loader wrappers (backend extraction compatibility)
+def _load_tokenizer_matching_vocab(tokenizer_path: Optional[str], want_vocab: int, checkpoint_meta: Optional[dict] = None) -> Tuple[Tokenizer, str]:
+    return _loader_match_tokenizer(REPO_ROOT, tokenizer_path, want_vocab, checkpoint_meta)
+
+
+def _load_broca_cached(model_path: str, device: str, tokenizer_path_hint: Optional[str] = None):
+    model, model_desc, want_vocab, checkpoint_meta = _loader_load_native_decoder(model_path, device)
+    return model, model_desc, want_vocab, checkpoint_meta, None
+
+
+def _load_encoder_cached(encoder_ckpt: Optional[str], device: str, fallback_decoder_cfg: Optional[ArdorConfig] = None):
+    return _loader_load_encoder_cached(encoder_ckpt, device, fallback_decoder_cfg)
+
+
 class ArdorCore:
     def __init__(
         self,
@@ -868,62 +869,32 @@ class ArdorCore:
         *,
         enable_retrieval: bool = False,
         encoder_ckpt: Optional[str] = None,
+        backend_family: Optional[str] = None,
     ):
         # max_len here is *generation* budget; model context is reported separately.
         self.device = device
         self.gen_max_tokens = int(max_len)
         self.enable_retrieval = bool(enable_retrieval)
 
-        self.model, model_desc, want_vocab, checkpoint_meta, model_sd = _load_broca_cached(
-            model_path, device, tokenizer_path
+        self.backend = load_backend(
+            model_path=model_path,
+            tokenizer_path=tokenizer_path,
+            device=device,
+            repo_root=REPO_ROOT,
+            backend_family=backend_family,
+            encoder_ckpt=encoder_ckpt,
         )
+        self.model = getattr(self.backend, "model", None)
+        self.tokenizer = getattr(self.backend, "tokenizer", None)
+        self.tokenizer_path = self.backend.tokenizer_path()
 
-        # Tie head ⇄ embedding if shapes agree (saves params / consistency)
-        try:
-            if hasattr(self.model, "lm_head") and hasattr(self.model, "token_embed"):
-                if self.model.lm_head.weight.shape == self.model.token_embed.weight.shape:
-                    self.model.lm_head.weight = self.model.token_embed.weight
-        except Exception:
-            pass
+        self.schema = self.backend.schema()
+        self.layers = int(self.schema.get("layers")) if self.schema.get("layers") is not None else None
+        self.heads = int(self.schema.get("heads")) if self.schema.get("heads") is not None else None
+        self.hidden = int(self.schema.get("hidden")) if self.schema.get("hidden") is not None else None
+        self.model_ctx_len = int(self.schema.get("max_len")) if self.schema.get("max_len") is not None else None
+        self.vocab_size = int(self.schema.get("vocab") or self.backend.vocab_size())
 
-        # ---------- tokenizer that matches vocab ----------
-        requested_tok = tokenizer_path if (tokenizer_path and os.path.isfile(tokenizer_path)) else None
-        tokenizer_obj, tok_path = _load_tokenizer_matching_vocab(requested_tok, want_vocab, checkpoint_meta)
-
-        self.tokenizer_requested_path = requested_tok
-        self.tokenizer = tokenizer_obj
-        try:
-            name = type(self.tokenizer.model).__name__.lower()
-            if name == "bpe" and getattr(self.tokenizer, "decoder", None) is None:
-                self.tokenizer.decoder = ByteLevel()
-        except Exception:
-            pass
-        self.tokenizer_path = tok_path
-
-        if requested_tok and os.path.abspath(requested_tok) != os.path.abspath(tok_path):
-            try:
-                rv = Tokenizer.from_file(requested_tok).get_vocab_size()
-            except Exception:
-                rv = "?"
-            print(
-                f"[tok] requested={requested_tok} (vocab={rv}) → chosen={tok_path} "
-                f"(vocab={self.tokenizer.get_vocab_size()})"
-            )
-
-        # ---------- model schema export ----------
-        self.layers = int(model_desc.get("layers")) if model_desc.get("layers") is not None else None
-        self.heads = int(model_desc.get("heads")) if model_desc.get("heads") is not None else None
-        self.hidden = int(model_desc.get("hidden")) if model_desc.get("hidden") is not None else None
-        self.model_ctx_len = int(model_desc.get("max_len")) if model_desc.get("max_len") is not None else None
-        self.vocab_size = int(model_desc.get("vocab")) if model_desc.get("vocab") is not None else want_vocab
-        self.schema = dict(model_desc)
-        self.schema.update({
-            "layers": self.layers,
-            "heads": self.heads,
-            "hidden": self.hidden,
-            "max_len": self.model_ctx_len,
-            "vocab": self.vocab_size,
-        })
         mismatch = self.schema.get("mismatch") or {"missing": [], "unexpected": []}
         miss_ct = len(mismatch.get("missing") or [])
         unex_ct = len(mismatch.get("unexpected") or [])
@@ -931,31 +902,14 @@ class ArdorCore:
             f"🧠 Model schema: layers={self.layers} heads={self.heads} hidden={self.hidden} "
             f"max_len={self.model_ctx_len} mismatch: missing={miss_ct} unexpected={unex_ct}"
         )
-        try:
-            emb_rows = getattr(getattr(self.model, "token_embed", None), "weight", None)
-            emb_rows = int(emb_rows.shape[0]) if emb_rows is not None else self.vocab_size
-        except Exception:
-            emb_rows = self.vocab_size
-        print(f"🧩 Tokenizer: {self.tokenizer_path}  | vocab={self.vocab_size}  embed={emb_rows}")
+        print(f"🧩 Tokenizer: {self.tokenizer_path}  | vocab={self.vocab_size}")
 
-        # ---------- Parietal memory (RETRIEVAL OFF by default) ----------
-        self.parietal: Optional[ParietalMemory] = None
-        if self.enable_retrieval:
-            self.parietal = ParietalMemory(self.tokenizer, self.device, want_vocab)
-            enc = _load_encoder_cached(encoder_ckpt, self.device, getattr(self.model, 'cfg', None))
-            if enc is not None:
-                self.parietal.encoder = enc
-            enc = getattr(self.parietal, "encoder", None)
-            if hasattr(enc, "tie_from_broca"):
-                try:
-                    enc.tie_from_broca(self.model)
-                except Exception:
-                    pass
-            print("🧠 Retrieval: ENABLED (make sure encoder weights are trained/loaded!)")
+        self.retrieval_backend = load_retrieval_backend(self.backend, device=self.device, enabled=self.enable_retrieval)
+        if self.retrieval_backend is not None:
+            print("🧠 Retrieval: ENABLED")
         else:
             print("🧠 Retrieval: DISABLED (safe default)")
 
-        # Rolling conversation memory + cached bias ids
         self.recent_texts = deque(maxlen=64)
         self.stopwords = STOPWORDS
         self._digit_ids = _token_ids_for_chars(self.tokenizer, set("0123456789"))
@@ -1096,6 +1050,13 @@ class ArdorCore:
         enable_retrieval: Optional[bool] = None,
     ) -> str:
 
+        if not isinstance(self.tokenizer, Tokenizer):
+            out = self.backend.generate(prompt, temperature=temperature, top_p=top_p, max_new_tokens=max_new_tokens)
+            final_out = polish(out) if polish_output else out
+            if log_response:
+                self.log(prompt, final_out)
+            return final_out
+
         # === Retrieval (DISABLED by default) ===
         # IMPORTANT: skip building hits_raw entirely when retrieval is off.
         orig_user_prompt = prompt
@@ -1159,7 +1120,8 @@ class ArdorCore:
             return logits
 
         def _model_forward(input_ids: torch.Tensor) -> torch.Tensor:
-            """Be tolerant to different model forward signatures; return logits [B,T,V]."""
+            if hasattr(self.backend, "forward_logits"):
+                return self.backend.forward_logits(input_ids)
             out = self.model(input_ids)
             if isinstance(out, (list, tuple)) and len(out) > 0:
                 out = out[0]
@@ -1265,7 +1227,7 @@ class ArdorCore:
             return out.strip()
 
         # === First pass generation ===
-        out1 = decode_once(temperature, top_p)
+        out1 = self.backend.generate(prompt, temperature=temperature, top_p=top_p, decode_fn=decode_once)
 
         # One-time boilerplate guard
         out1 = _strip_speaker_tags(out1).strip()
@@ -1284,7 +1246,7 @@ class ArdorCore:
             nblock.reset()
 
             # ✅ EOS retry fix: retry NEVER bans EOS (decode_once has no ban_eos_entirely path).
-            out2 = decode_once(retry_tighter[0], retry_tighter[1])
+            out2 = self.backend.generate(prompt, temperature=retry_tighter[0], top_p=retry_tighter[1], decode_fn=decode_once)
 
             if _jaccard(want, _keywords(out2, self.stopwords)) >= rel1:
                 out1 = out2
@@ -1313,6 +1275,7 @@ def get_global_core(
     encoder_ckpt: Optional[str] = None,
     max_len: int = 300,
     force_reload: bool = False,
+    backend_family: Optional[str] = None,
 ) -> ArdorCore:
     global _GLOBAL_CORE, _GLOBAL_CORE_KEY
     key = (
@@ -1322,6 +1285,7 @@ def get_global_core(
         bool(enable_retrieval),
         os.path.abspath(encoder_ckpt) if encoder_ckpt else None,
         int(max_len),
+        backend_family,
     )
     if force_reload or _GLOBAL_CORE is None or _GLOBAL_CORE_KEY != key:
         _GLOBAL_CORE = ArdorCore(
@@ -1331,6 +1295,7 @@ def get_global_core(
             max_len=max_len,
             enable_retrieval=enable_retrieval,
             encoder_ckpt=encoder_ckpt,
+            backend_family=backend_family,
         )
         _GLOBAL_CORE_KEY = key
     return _GLOBAL_CORE
