@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ardor"
+version = "0.1.0"
+description = "Ardor runtime and neurobiological orchestration stack"
+readme = "README.md"
+requires-python = ">=3.10,<3.12"
+dependencies = []
+
+[project.optional-dependencies]
+dev = []
+gui = []
+hf = []
+
+[project.scripts]
+ardor-bootstrap = "scripts.bootstrap_runtime:main"
+ardor-launch = "scripts.launch_ardor:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["Cerebrum*", "Aeternum*", "Praetor*", "Erratum*", "Hephaestus*", "scripts*"]
+
+[tool.uv]
+package = false
