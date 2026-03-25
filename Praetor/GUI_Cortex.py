@@ -8,18 +8,6 @@ from tkinter import ttk
 from typing import Optional
 from pathlib import Path
 
-import sys
-from pathlib import Path
-
-# Project root = .../ProjectArdor
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from Aeternum.AeternumCore import AeternumCore, AeternumConfig
-
-
-
 # ---- Ardor root resolution (shared with the EXE) ----
 RUNTIME_PATHS = getattr(sys.modules.get('__main__'), 'PATHS', None)
 
@@ -48,16 +36,18 @@ def _ardor_root() -> Path:
     return Path(__file__).resolve().parent
 
 ROOT_DIR: Path = (RUNTIME_PATHS.ROOT if RUNTIME_PATHS else _ardor_root()).resolve()
-ARTIFACTS_DIR = ROOT_DIR / "artifacts"
-ARTIFACTS_MODELS_DIR = ARTIFACTS_DIR / "models"
-ARTIFACTS_REM_DIR = ARTIFACTS_DIR / "rem"
-ARTIFACTS_MODELS_DIR.mkdir(parents=True, exist_ok=True)
-ARTIFACTS_REM_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------- core import ----------------
 from importlib.machinery import SourceFileLoader
 from importlib.util import spec_from_loader, module_from_spec
-sys.path.append("../Cerebrum/Cortex")
+
+root_str = str(ROOT_DIR.resolve())
+if root_str not in sys.path:
+    sys.path.insert(0, root_str)
+
+cortex_str = str((ROOT_DIR / "Cerebrum" / "Cortex").resolve())
+if cortex_str not in sys.path:
+    sys.path.insert(0, cortex_str)
 
 def _import_module_by_path(py_path: Path):
     name = py_path.stem + "_dyn"
@@ -94,8 +84,10 @@ def resolve_ArdorCore():
             mod = importlib.import_module(candidate)
             cls = getattr(mod, "ArdorCore", None)
             if inspect.isclass(cls): return cls
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[Ardor GUI] failed importing {candidate}: {e}")
+            import traceback
+            traceback.print_exc()
 
     try:
         if cortex_dir.exists():
@@ -117,10 +109,6 @@ def resolve_ArdorCore():
     return None
 
 ArdorCoreCls = resolve_ArdorCore()
-try:
-    from prefrontal_cortex import get_global_core
-except Exception:
-    get_global_core = None
 
 # ---------------- intents ----------------
 class Intent:
@@ -186,6 +174,8 @@ STYLE_PRIME = (
     "You are Ardor. Answer in clear, natural, conversational English. "
 )
 
+
+
 # ───────────────────────── Atelier-style Retro Theme ─────────────────────────
 RETRO_DARK  = {'bg':'#0a0907','text':'#fff4e2','panel':'#100e0b','panel2':'#13100b',
                'stroke':'#3b2a1d','accent1':'#ffc861','accent2':'#ffb354','accent3':'#ff9100','accent4':'#d46b00','grid':'#2f2216'}
@@ -227,142 +217,74 @@ class Scanline(tk.Canvas):
         self._x = (self._x + 6) % (w + 160)
         self.after(24, self._tick)
 
-# ---------------- Kaomoji HUD (Canvas grid + centered face) ----------------
-
-# 28 labels you requested
-KAOMOJI_LABELS = [
-    "Admiration","Amusement","Anger","Annoyance","Approval","Caring","Confusion","Curiosity",
-    "Desire","Disappointment","Disapproval","Disgust","Embarrassment","Excitement","Fear","Gratitude",
-    "Grief","Joy","Love","Nervousness","Optimism","Pride","Realization","Relief","Remorse","Sadness",
-    "Surprise","Neutral"
-]
-
-# Valence ∈ [-1,1], Arousal ∈ [0,1]
-MOOD_META = {
-    "Admiration":     ( 0.7, 0.6),
-    "Amusement":      ( 0.6, 0.5),
-    "Anger":          (-0.7, 0.9),
-    "Annoyance":      (-0.3, 0.6),
-    "Approval":       ( 0.6, 0.5),
-    "Caring":         ( 0.8, 0.4),
-    "Confusion":      (-0.1, 0.5),
-    "Curiosity":      ( 0.3, 0.6),
-    "Desire":         ( 0.6, 0.7),
-    "Disappointment": (-0.5, 0.4),
-    "Disapproval":    (-0.5, 0.6),
-    "Disgust":        (-0.7, 0.5),
-    "Embarrassment":  (-0.3, 0.6),
-    "Excitement":     ( 0.9, 0.9),
-    "Fear":           (-0.6, 0.9),
-    "Gratitude":      ( 0.8, 0.5),
-    "Grief":          (-0.9, 0.7),
-    "Joy":            ( 0.8, 0.6),
-    "Love":           ( 0.9, 0.7),
-    "Nervousness":    (-0.2, 0.7),
-    "Optimism":       ( 0.7, 0.5),
-    "Pride":          ( 0.6, 0.5),
-    "Realization":    ( 0.2, 0.5),
-    "Relief":         ( 0.6, 0.3),
-    "Remorse":        (-0.6, 0.5),
-    "Sadness":        (-0.8, 0.4),
-    "Surprise":       ( 0.0, 0.9),
-    "Neutral":        ( 0.0, 0.2),
-}
-
-# Single-line kaomoji per label
-KAOMOJI = {
-    "Admiration":     "(ﾉ◕ヮ◕)ﾉ*:･ﾟ✧",
-    "Amusement":      "(＾▽＾)",
-    "Anger":          "(╬ಠ益ಠ)",
-    "Annoyance":      "(¬_¬ )",
-    "Approval":       "(b'_')b",
-    "Caring":         "(つ˘◡˘)つ",
-    "Confusion":      "(・・ )?",
-    "Curiosity":      "(⊙_⊙)?",
-    "Desire":         "(♡ω♡ )",
-    "Disappointment": "(︶︹︺)",
-    "Disapproval":    "(ಠ_ಠ)",
-    "Disgust":        "(¬､¬)",
-    "Embarrassment":  "(⁄ ⁄>⁄ ▽ ⁄<⁄ ⁄)",
-    "Excitement":     "ヽ(＾Д＾)ﾉ",
-    "Fear":           "(ó﹏ò｡)",
-    "Gratitude":      "(人❛ᴗ❛)♪",
-    "Grief":          "(٭°̧̧̧ω°̧̧̧٭)",
-    "Joy":            "(＾▽＾)",
-    "Love":           "(♡˙︶˙♡)",
-    "Nervousness":    "(；・∀・)",
-    "Optimism":       "(＾∇＾)",
-    "Pride":          "(￣‿￣)",
-    "Realization":    "(・o・)",
-    "Relief":         "(〃´o｀)=3",
-    "Remorse":        "(シ_ _)シ",
-    "Sadness":        "(╥_╥)",
-    "Surprise":       "Σ(°ロ°)",
-    "Neutral":        "(・_・)"
-}
-
-KAOMOJI_ROTATE_SECS = 15  # ← change this if you want a different rotation interval
-
-def _mood_color(theme, valence: float, arousal: float) -> str:
-    """Warm (orange) for positive valence, cool (teal) for negative; brighten with arousal."""
-    warm = theme.get('accent3', '#ff9100')
-    cool = '#3aa7b8'
-    t = (valence * 0.5) + 0.5  # [-1,1] -> [0,1]
-    base = _mix(cool, warm, t)
-    return _mix(base, "#ffffff", 0.12 + 0.30*max(0.0, min(1.0, arousal)))
-
+# ---------------- Eye HUD (resizing grid + centered eye) ----------------
 class HUD(tk.Canvas):
-    """Minimal, grid-based kaomoji HUD. Keeps method names so the rest of GUI doesn't break."""
+    ORANGE = dict(iris="#a85a00", ring="#ff9100", tick="#ff7a1a", track="#d46b00",
+                  glow="#ffc861", spec="#ffe4b8", highlight="#fff1d6", grid="#2f2216")
+    BLACK  = dict(iris="#000000", ring="#333333", tick="#222222", track="#444444",
+                  glow="#666666", spec="#d0d0d0", highlight="#ffffff", grid="#444444")
+
     def __init__(self, master, theme, **kw):
         super().__init__(master, highlightthickness=0, **kw)
-        self.theme = theme
-        self.configure(bg=self.theme['bg'])
-        self._resize_job = None
-        self.current_label = random.choice(KAOMOJI_LABELS)
-        self.face_id = None
-        self.label_id = None
-        self.dot_id = None
+        self.theme=theme; self.configure(bg=self.theme['bg'])
+        self.cx, self.cy = 720, 360
+        self.rx, self.ry = 180, 110
+        self.r_iris=62; self.r_pupil=24; self.max_offset=0.38
+        self.gaze_x=self.gaze_y=0.0; self.mouse_local=None
+        self.bias_local=None; self.bias_until=0.0
+        self.lid_open=1.0; self.blinking=False; self.reopening=False
+        self.next_blink=time.time()+random.uniform(3.0,6.0)
+        self.micro_t=random.random()*100.0; self.t=0.0; self.rot=0.0
+        self.items={}; self.bloom_layers=[]; self.track_ids=[]; self.tick_ids=[]; self.reticle_layers=[]
+        self._resize_job=None
 
-        # fonts (Tk will fall back if not available)
-        self.face_font = ("Segoe UI Emoji", 48, "normal")
-        self.label_font = ("Consolas", 14, "normal")
-
-        self.bind("<Configure>", self._on_configure)
+        self.bind("<Configure>", self._on_configure)  # keep grid full-size + eye centered
         self._draw_static()
-        self._schedule_rotate()
+        self.after(30, self._tick)
 
-    # Compatibility shims
+    def _pal(self):
+        return self.ORANGE
+
+    def _mix_to_theme(self, c, t):
+        return _mix(c, "#000000" if self.theme.get('bg') == RETRO_DARK.get('bg') else "#ffffff", t)
+
     def set_theme(self, theme):
-        self.theme = theme or RETRO_DARK
-        self.configure(bg=self.theme['bg'])
+        self.theme=theme or RETRO_DARK
         self._rebuild_static()
 
-    def look_at_root(self, _x_root: int, _y_root: int):
-        # Kept for compatibility; not used in the kaomoji HUD
-        pass
-
-    def bias_towards_widget(self, _widget: tk.Widget, _duration: float = 1.5):
-        # Kept for compatibility; not used here
-        pass
-
-    def set_status(self, _status: str, _revert_after: float|None=None):
-        # Kept for compatibility
-        pass
-
-    # Drawing
+    # --- resize handling ---
     def _on_configure(self, _evt):
         if self._resize_job:
             self.after_cancel(self._resize_job)
         self._resize_job = self.after(60, self._rebuild_static)
 
     def _rebuild_static(self):
-        self._resize_job = None
+        self._resize_job=None
         self.delete('all')
-        self.face_id = self.label_id = self.dot_id = None
+        self.items={}; self.track_ids=[]; self.tick_ids=[]; self.reticle_layers=[]; self.bloom_layers=[]
+        self.configure(bg=self.theme.get('bg', '#000000'))
         self._draw_static()
 
+    def set_status(self, _status: str, revert_after: float|None=None):
+        if revert_after: self.after(int(revert_after*1000), lambda: None)
+
+    def look_at_root(self, x_root: int, y_root: int):
+        cxr, cyr = self.winfo_rootx(), self.winfo_rooty()
+        self.mouse_local = (x_root - cxr, y_root - cyr)
+
+    def bias_towards_widget(self, widget: tk.Widget, duration: float = 1.5):
+        try:
+            widget.update_idletasks()
+            wx, wy = widget.winfo_rootx(), widget.winfo_rooty()
+            ww, wh = max(widget.winfo_width(),1), max(widget.winfo_height(),1)
+            cxr, cyr = self.winfo_rootx(), self.winfo_rooty()
+            self.bias_local = (wx + ww/2 - cxr, wy + wh/2 - cyr); self.bias_until = time.time() + duration
+        except Exception:
+            pass
+
     def _draw_grid(self):
-        grid_c = self.theme.get('grid', '#2f2216')
+        pal = self._pal()
+        grid_c = self.theme.get('grid', pal.get('grid', '#2f2216'))
         w = self.winfo_width() or int(float(self.cget('width') or 0)) or 1
         h = self.winfo_height() or int(float(self.cget('height') or 0)) or 1
         step = 28
@@ -373,118 +295,183 @@ class HUD(tk.Canvas):
 
     def _draw_static(self):
         self._draw_grid()
-        self._render_face()
+        w = self.winfo_width() or int(float(self.cget('width') or 0)) or 1
+        h = self.winfo_height() or int(float(self.cget('height') or 0)) or 1
+        self.cx, self.cy = w//2, h//2
 
-    def set_from_emotion_state(self, st):
-        """
-        Map EmotionState to one of the KAOMOJI_LABELS.
-        We use anxiety/valence/arousal/stance to pick a label.
-        """
-        if st is None:
-            return
+        pal = self._pal()
+        ring_c = pal.get('ring', '#ff9100'); track_c = pal.get('track', ring_c)
+        tick_c = pal.get('tick', ring_c); spec_c = pal.get('spec', '#ffe4b8')
+        high_c = pal.get('highlight', '#fff1d6'); glow_c = pal.get('glow', ring_c)
+        sclera_fill = '#0e0e0e' if self.theme.get('bg') == RETRO_DARK.get('bg') else '#faf3e5'
+        sclera_outline = self._mix_to_theme(ring_c, 0.45 if self.theme.get('bg') == RETRO_DARK.get('bg') else 0.15)
 
-        # Safe getters (in case the dataclass changes)
-        val   = float(getattr(st, "valence", 0.0))
-        aro   = float(getattr(st, "arousal", 0.0))
-        anx   = float(getattr(st, "anxiety", 0.0))
-        surpr = float(getattr(st, "surprise", 0.0))
-        stance = getattr(st, "stance", "") or ""
+        self.items['sclera'] = self.create_oval(self.cx-self.rx, self.cy-self.ry, self.cx+self.rx, self.cy+self.ry,
+                                                fill=sclera_fill, outline=sclera_outline, width=2)
+        self.items['pupil'] = self.create_oval(self.cx-self.r_pupil, self.cy-self.r_pupil,
+                                               self.cx+self.r_pupil, self.cy+self.r_pupil, fill='#000000', outline='')
+        self.items['iris_border'] = self.create_oval(self.cx-self.r_iris, self.cy-self.r_iris,
+                                                     self.cx+self.r_iris, self.cy+self.r_iris, outline=ring_c, width=2)
+        inner = self.r_pupil + 4; outer = self.r_iris - 2; rings = 8
+        for j in range(rings):
+            r = inner + (j+1)*(outer-inner)/(rings+1)
+            oid = self.create_oval(self.cx-r, self.cy-r, self.cx+r, self.cy+r,
+                                   outline=self._mix_to_theme(track_c, 0.18+0.08*j), width=1)
+            self.track_ids.append(oid)
 
-        label = "Neutral"
+        def band(r0, r1, N, color, thickness_step=5):
+            for k in range(N):
+                th = math.radians((360/N)*k)
+                x0=self.cx + r0*math.cos(th); y0=self.cy + r0*math.sin(th)
+                x1=self.cx + r1*math.cos(th); y1=self.cy + r1*math.sin(th)
+                lw = 1 if k%thickness_step else 2
+                lid=self.create_line(x0,y0,x1,y1, fill=color, width=lw, capstyle=tk.ROUND)
+                self.tick_ids.append(lid)
+        band(self.r_pupil+4,  self.r_pupil+10, 64, tick_c)
+        band(self.r_pupil+14, self.r_pupil+22, 48, tick_c)
+        band(self.r_pupil+26, self.r_iris-6,   36, tick_c)
 
-        # High threat → fear / nervous
-        if anx > 0.7 or stance == "cautious":
-            label = "Fear"
-        elif anx > 0.4:
-            label = "Nervousness"
+        self._make_reticles(center=(self.cx, self.cy), color=ring_c)
 
-        # Strong positive, not too aroused → caring / gratitude / love
-        elif val > 0.4 and aro < 0.6:
-            if stance == "supportive":
-                label = "Caring"
+        Rspec=self.r_iris+7
+        self.items['spec_ring']=self.create_arc(self.cx-Rspec, self.cy-Rspec, self.cx+Rspec, self.cy+Rspec,
+                                                start=25, extent=54, style='arc', outline=spec_c, width=3)
+        self.items['highlight']=self.create_oval(self.cx-8, self.cy-8, self.cx-2, self.cy-2, fill=high_c, outline='')
+
+        for i in range(6):
+            r = self.r_iris + 10 + i*6
+            oid=self.create_oval(self.cx-r, self.cy-r, self.cx+r, self.cy+r,
+                                 outline=self._mix_to_theme(glow_c,0.55+0.35*(i/6)), width=2)
+            self.bloom_layers.append(oid)
+
+        pad=2
+        self.items['top_lid']=self.create_rectangle(self.cx-self.rx-pad, self.cy-self.ry-pad,
+                                                    self.cx+self.rx+pad, self.cy-self.ry,
+                                                    fill=self.theme.get('bg', '#000000'), outline=self.theme.get('bg', '#000000'))
+        self.items['bot_lid']=self.create_rectangle(self.cx-self.rx-pad, self.cy+self.ry,
+                                                    self.cx+self.rx+pad, self.cy+self.ry+pad,
+                                                    fill=self.theme.get('bg', '#000000'), outline=self.theme.get('bg', '#000000'))
+
+    def _make_reticles(self, center, color):
+        cx,cy=center; self.reticle_layers.clear()
+        def ring(R, segs, span_deg, speed):
+            arcs=[]
+            for i in range(segs):
+                start=i*(360/segs)
+                aid=self.create_arc(cx-R, cy-R, cx+R, cy+R, start=start, extent=span_deg,
+                                    style='arc', outline=color, width=2)
+                arcs.append(aid)
+            self.reticle_layers.append({'arcs':arcs,'offset':0.0,'speed':speed,'span':360/segs})
+        ring(self.r_iris+14, 48, 6, +0.6); ring(self.r_iris+26, 36, 7, -0.45)
+
+    def _blend_target(self):
+        now=time.time(); bias_w=0.78 if now<self.bias_until and self.bias_local else 0.0
+        default=(self.cx, self.cy+self.ry*0.35); mouse=self.mouse_local or default
+        if self.bias_local:
+            tx=(1-bias_w)*mouse[0]+bias_w*self.bias_local[0]
+            ty=(1-bias_w)*mouse[1]+bias_w*self.bias_local[1]
+            return (tx,ty)
+        return mouse
+
+    def _limit_offset(self, dx, dy):
+        mx=self.rx*self.max_offset; my=self.ry*self.max_offset
+        if dx==0 and dy==0: return 0.0,0.0
+        ux,uy=dx/mx, dy/my; mag=math.hypot(ux,uy)
+        if mag<=1.0: return dx,dy
+        ux/=mag; uy/=mag
+        return ux*mx, uy*my
+
+    def _max_radius_inside_ellipse(self, ix, iy, samples=24):
+        dx, dy = ix - self.cx, iy - self.cy
+        rx2, ry2 = self.rx*self.rx, self.ry*self.ry
+        if (dx*dx)/rx2 + (dy*dy)/ry2 >= 1.0: return 0.0
+        tmin=float('inf')
+        for k in range(samples):
+            th=(2*math.pi)*k/samples
+            ux,uy=math.cos(th), math.sin(th)
+            A=(ux*ux)/rx2+(uy*uy)/ry2
+            B=2*(dx*ux/rx2 + dy*uy/ry2)
+            C=(dx*dx)/rx2 + (dy*dy)/ry2 - 1.0
+            disc=B*B-4*A*C
+            if disc<=0: continue
+            t=(-B+math.sqrt(disc))/(2*A)
+            if t>0 and t<tmin: tmin=t
+        return max(0.0, tmin if tmin!=float('inf') else 0.0)
+
+    def _update_eyelids(self):
+        now=time.time()
+        if not self.blinking and now>=self.next_blink:
+            self.blinking=True; self.reopening=False
+        if self.blinking:
+            if not self.reopening:
+                self.lid_open=max(0.0, self.lid_open-0.20)
+                if self.lid_open<=0.0: self.reopening=True
             else:
-                label = "Gratitude"
+                self.lid_open=min(1.0, self.lid_open+0.14)
+                if self.lid_open>=1.0:
+                    self.blinking=False; self.next_blink=now+random.uniform(3.0,6.0)
+        open_y=self.ry*self.lid_open; pad=2
+        self.coords(self.items['top_lid'], self.cx-self.rx-pad, self.cy-self.ry-pad, self.cx+self.rx+pad, self.cy-open_y)
+        self.coords(self.items['bot_lid'], self.cx-self.rx-pad, self.cy+open_y, self.cx+self.rx+pad, self.cy+self.ry+pad)
 
-        # High positive + high arousal → joy / excitement
-        elif val > 0.5 and aro >= 0.6:
-            label = "Excitement" if surpr < 0.4 else "Surprise"
-
-        # Negative valence, low arousal → sadness
-        elif val < -0.5 and aro < 0.6:
-            label = "Sadness"
-
-        # Negative valence, high arousal → anger / annoyance
-        elif val < -0.4 and aro >= 0.6:
-            label = "Anger" if getattr(st, "dominance", 0.0) > 0.5 else "Annoyance"
-
-        self.current_label = label
-        self._render_face()
-
-
-    def _render_face(self):
-        w = self.winfo_width() or int(float(self.cget('width') or 1))
-        h = self.winfo_height() or int(float(self.cget('height') or 1))
-        cx, cy = w//2, h//2
-
-        label = self.current_label
-        face = KAOMOJI.get(label, "(・_・)")
-        val, aro = MOOD_META.get(label, (0.0, 0.2))
-        color = _mood_color(self.theme, val, aro)
-
-        # Fit face size to viewport
-        # Scale font based on width (rough heuristic)
-        face_size = max(28, min(96, int(0.07 * min(w, h) + 36)))
-        self.face_font = ("Segoe UI Emoji", face_size, "normal")
-
-        # draw colored dot + label under face
-        label_y = cy + int(face_size * 0.9)
-
-        # face
-        if self.face_id is None:
-            self.face_id = self.create_text(cx, cy, text=face, fill=color, font=self.face_font, anchor="center")
-        else:
-            self.coords(self.face_id, cx, cy)
-            self.itemconfigure(self.face_id, text=face, fill=color, font=self.face_font)
-
-        # label
-        label_text = f"{label}   ·   valence {val:+.2f} | arousal {aro:.2f}"
-        if self.label_id is None:
-            self.label_id = self.create_text(cx, label_y, text=label_text,
-                                             fill=self.theme['text'], font=self.label_font, anchor="center")
-        else:
-            self.coords(self.label_id, cx, label_y)
-            self.itemconfigure(self.label_id, text=label_text, fill=self.theme['text'], font=self.label_font)
-
-        # small colored dot next to label (left side)
-        dot_r = 6
-        dot_x = cx - (self.bbox(self.label_id)[2] - self.bbox(self.label_id)[0])//2 - 16
-        dot_y = label_y
-        if self.dot_id is None:
-            self.dot_id = self.create_oval(dot_x-dot_r, dot_y-dot_r, dot_x+dot_r, dot_y+dot_r,
-                                           fill=color, outline="")
-        else:
-            self.coords(self.dot_id, dot_x-dot_r, dot_y-dot_r, dot_x+dot_r, dot_y+dot_r)
-            self.itemconfigure(self.dot_id, fill=color)
-
-    # rotation
-    def _schedule_rotate(self):
-        # self.after(KAOMOJI_ROTATE_SECS * 1000, self._rotate_once)
-        pass
-    def _rotate_once(self):
-        # pick a different mood than current
-        options = [m for m in KAOMOJI_LABELS if m != self.current_label]
-        if options:
-            self.current_label = random.choice(options)
-            self._render_face()
-        self._schedule_rotate()
+    def _tick(self):
+        pal=self._pal()
+        ring_c = pal.get('ring', '#ff9100'); tick_c = pal.get('tick', ring_c)
+        spec_c = pal.get('spec', '#ffe4b8'); high_c = pal.get('highlight', '#fff1d6')
+        glow_c = pal.get('glow', ring_c)
+        self.t+=0.03; self.rot=(self.rot+0.8)%360
+        tx,ty=self._blend_target(); self.micro_t+=0.03
+        tx+=math.sin(self.micro_t*1.7)*2.2; ty+=math.cos(self.micro_t*1.3)*1.6
+        dx,dy=self._limit_offset(tx-self.cx, ty-self.cy)
+        a=0.18; self.gaze_x=(1-a)*self.gaze_x + a*dx; self.gaze_y=(1-a)*self.gaze_y + a*dy
+        ix,iy=self.cx+self.gaze_x, self.cy+self.gaze_y
+        self.coords(self.items['pupil'], ix-self.r_pupil, iy-self.r_pupil, ix+self.r_pupil, iy+self.r_pupil)
+        self.coords(self.items['iris_border'], ix-self.r_iris, iy-self.r_iris, ix+self.r_iris, iy+self.r_iris)
+        inner=self.r_pupil+4; outer=self.r_iris-2
+        for j,oid in enumerate(self.track_ids):
+            r = inner + (j+1)*(outer-inner)/(len(self.track_ids)+1)
+            self.coords(oid, ix-r, iy-r, ix+r, iy+r)
+        for lid in self.tick_ids: self.delete(lid)
+        self.tick_ids.clear()
+        bands=[(self.r_pupil+4, self.r_pupil+10, 64, +0.8),
+               (self.r_pupil+14, self.r_pupil+22, 48, -0.6),
+               (self.r_pupil+26, self.r_iris-6,   36, +0.4)]
+        for r0,r1,N,spd in bands:
+            for k in range(N):
+                ang=math.radians((360/N)*k + self.rot*spd)
+                x0=ix + r0*math.cos(ang); y0=iy + r0*math.sin(ang)
+                x1=ix + r1*math.cos(ang); y1=iy + r1*math.sin(ang)
+                lw=1 if k%5 else 2
+                lid=self.create_line(x0,y0,x1,y1, fill=tick_c, width=lw, capstyle=tk.ROUND)
+                self.tick_ids.append(lid)
+        Rmax = max(0.0, self._max_radius_inside_ellipse(ix, iy) - 6)
+        for li,layer in enumerate(self.reticle_layers):
+            base = self.r_iris + (14 if li == 0 else 26)
+            R = min(base, 0.88*Rmax)
+            for aid in layer['arcs']:
+                self.coords(aid, ix-R, iy-R, ix+R, iy+R)
+            layer['offset']=(layer['offset']+layer['speed'])%360
+            for i,aid in enumerate(layer['arcs']):
+                self.itemconfigure(aid, start=(i*layer['span']+layer['offset'])%360, outline=ring_c)
+        Rspec=min(self.r_iris+7, max(0.0, Rmax-4))
+        self.coords(self.items['spec_ring'], ix-Rspec, iy-Rspec, ix+Rspec, iy+Rspec)
+        self.itemconfigure(self.items['spec_ring'], outline=spec_c)
+        hx,hy = ix - self.r_pupil*0.6, iy - self.r_pupil*0.6
+        self.coords(self.items['highlight'], hx-6, hy-6, hx, hy)
+        self.itemconfigure(self.items['highlight'], fill=high_c)
+        breath = 0.5 + 0.5*math.sin(self.t*1.2)
+        for i,oid in enumerate(self.bloom_layers):
+            r0=self.r_iris+10+i*6
+            self.coords(oid, ix-r0, iy-r0, ix+r0, iy+r0)
+            self.itemconfigure(oid, outline=self._mix_to_theme(glow_c,0.55+0.35*(i/len(self.bloom_layers))*(0.8+0.2*breath)),
+                               width=1+int(2*breath))
+        self._update_eyelids(); self.after(30, self._tick)
 
 # ---------------- GUI ----------------
 DECODE_CFG = {"temperature": 0.70, "top_p": 0.90, "rep_penalty": 1.15, "ngram": 4}
 
 WIN_MODELS_PATH = Path(r"C:\Users\adm\PycharmProjects\ProjectArdor\Cerebrum\Models\Ardor")
-if (ARTIFACTS_MODELS_DIR).exists():
-    MODELS_DIR = str(ARTIFACTS_MODELS_DIR.resolve())
-elif WIN_MODELS_PATH.exists():
+if WIN_MODELS_PATH.exists():
     MODELS_DIR = str(WIN_MODELS_PATH.resolve())
 else:
     MODELS_DIR = str((ROOT_DIR / "Cerebrum" / "Models" / "Ardor").resolve())
@@ -502,21 +489,12 @@ class ArdorGUI(tk.Tk):
         # Atelier vibe by default
         self.theme=RETRO_DARK
         self.parser=IntentParser(); self.core=None
-
-        # Aeternum (emotion core)
-        try:
-            cfg = AeternumConfig(device="cpu", hidden_dim=384, prefer_snn=True)
-            self.aeternum = AeternumCore(cfg)
-            self.last_emotion = None
-            self.log("[Aeternum] Emotion core loaded (vmPFC + Amygdala SNN).", tag='sys')
-        except Exception as e:
-            self.aeternum = None
-            self.last_emotion = None
-            self.log(f"[Aeternum] Failed to init emotion core: {e}", tag='sys')
-
-
         self.current_model=None; self.proc=None; self.anim_event=Event()
         self.pending_plan=None; self.autonomy=tk.StringVar(value="Assist")
+        self._last_user_activity_ts = time.time()
+        self._last_dmn_idle_ts = 0.0
+        self._dmn_idle_after_s = 6.0
+        self._dmn_idle_every_s = 4.0
 
         # Slow-type state
         self._slowtype_job=None
@@ -566,7 +544,7 @@ class ArdorGUI(tk.Tk):
         self.panes = tk.PanedWindow(self, orient=tk.VERTICAL, sashwidth=6, bg=self.theme['panel'], bd=0, relief=tk.FLAT)
         self.panes.pack(fill=tk.BOTH, expand=True)
 
-        # HUD (now kaomoji canvas)
+        # HUD
         self.hud_frame = tk.Frame(self.panes, bg=self.theme['bg'])
         self.hud = HUD(self.hud_frame, theme=self.theme, width=W-24, height=int(H*0.40))
         self.hud.pack(fill=tk.BOTH, expand=True, padx=12)
@@ -579,6 +557,7 @@ class ArdorGUI(tk.Tk):
                             height=16, wrap='word', relief=tk.FLAT, bd=1, highlightthickness=1, highlightbackground=self.theme['stroke'])
         self.term.pack(fill=tk.BOTH, expand=True, padx=12)
         self._enable_mousewheel(self.term)
+        self._build_dmn_panel()
         self.panes.add(self.trans_frame, minsize=120)
 
         # Input
@@ -601,6 +580,7 @@ class ArdorGUI(tk.Tk):
 
         self.after(120, self._init_sashes)
         self.bind_all('<Motion>', self._on_motion)
+        self.after(2500, self._dmn_pulse)
 
         # Progress/status
         self.progress = ttk.Progressbar(self, mode='determinate', length=380)
@@ -626,15 +606,74 @@ class ArdorGUI(tk.Tk):
         self.bind('<F1>', lambda e: self.run_tests())
         self.bind('<F5>', lambda e: (self.update_model_dropdown(), self.update_tokenizer_dropdown()))
         self.set_theme(self.theme)
-        self.after(400, lambda: self.hud.bias_towards_widget(self.input, _duration=1.2))
+        self.after(400, lambda: self.hud.bias_towards_widget(self.input, duration=1.2))
         self.log("[boot] Ardor GUI ready.\n", tag='sys')
 
-    # ----- UI helpers to ensure all widget updates happen on the Tk main thread
-    def ui(self, fn, *args, **kwargs):
-        self.after(0, lambda: fn(*args, **kwargs))
 
-    def ui_log(self, msg: str, nl: bool = False, tag: str = 'sys'):
-        self.ui(self.log, msg, nl, tag)
+    def _build_dmn_panel(self):
+        self.dmn_frame = tk.LabelFrame(
+            self.trans_frame,
+            text='DMN',
+            bg=self.theme['panel'],
+            fg=self.theme['text'],
+            bd=1,
+            highlightthickness=1,
+            highlightbackground=self.theme['stroke'],
+        )
+        self.dmn_frame.pack(fill=tk.X, padx=12, pady=(6, 10))
+        self.dmn_labels = {}
+        for field in ('status', 'seed', 'traces', 'takeaway', 'salience'):
+            row = tk.Frame(self.dmn_frame, bg=self.theme['panel'])
+            row.pack(fill=tk.X, padx=8, pady=2)
+            name = tk.Label(row, text=f"{field.title()}:", width=10, anchor='w', bg=self.theme['panel'], fg=self.theme['text'])
+            name.pack(side=tk.LEFT)
+            val = tk.Label(row, text='—', anchor='w', justify='left', wraplength=980, bg=self.theme['panel'], fg=self.theme['text'])
+            val.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            self.dmn_labels[field] = val
+
+    def _dmn_compact(self, value, limit: int = 220) -> str:
+        if value is None:
+            return '—'
+        if isinstance(value, dict):
+            if 'summary' in value:
+                value = value.get('summary')
+            else:
+                value = json.dumps(value, ensure_ascii=False)
+        elif isinstance(value, (list, tuple)):
+            value = ' | '.join(str(x) for x in value if str(x).strip())
+        else:
+            value = str(value)
+        value = re.sub(r'\s+', ' ', value).strip()
+        return value[:limit].rstrip() + ('…' if len(value) > limit else '') if value else '—'
+
+    def _update_dmn_panel(self):
+        if not hasattr(self, 'dmn_labels'):
+            return
+        state = {}
+        try:
+            if self.core and hasattr(self.core, 'get_dmn_state'):
+                state = self.core.get_dmn_state() or {}
+        except Exception:
+            state = {}
+        takeaway = state.get('current_narrative_takeaway') if isinstance(state, dict) else None
+        salience = state.get('salience_info') if isinstance(state, dict) else {}
+        self.dmn_labels['status'].configure(text=self._dmn_compact(state.get('mode') if isinstance(state, dict) else 'DISABLED', 80))
+        self.dmn_labels['seed'].configure(text=self._dmn_compact(state.get('last_seed') if isinstance(state, dict) else '', 180))
+        self.dmn_labels['traces'].configure(text=self._dmn_compact((state.get('last_retrieved_traces') or [])[:3] if isinstance(state, dict) else [], 260))
+        self.dmn_labels['takeaway'].configure(text=self._dmn_compact(takeaway, 320))
+        self.dmn_labels['salience'].configure(text=self._dmn_compact(salience, 180))
+
+    def _dmn_pulse(self):
+        try:
+            now = time.time()
+            if self.core and hasattr(self.core, 'run_idle_dmn_cycle'):
+                if (now - self._last_user_activity_ts) >= self._dmn_idle_after_s and (now - self._last_dmn_idle_ts) >= self._dmn_idle_every_s:
+                    self.core.run_idle_dmn_cycle()
+                    self._last_dmn_idle_ts = now
+            self._update_dmn_panel()
+        except Exception:
+            pass
+        self.after(2500, self._dmn_pulse)
 
     # ----- colored text helpers -----
     def _configure_text_tags(self):
@@ -645,55 +684,21 @@ class ArdorGUI(tk.Tk):
         self.term.tag_configure('default', foreground=self.theme['text'])
         self.term.tag_configure('thinking', foreground=ardor_fg)
 
-    def update_emotion_from_text(self, text: str):
-        """Run user text through Aeternum + SNN and update HUD."""
-        if not getattr(self, "aeternum", None):
-            return
-        pooled = None
-
-        # try to reuse Ardor's encoder as pooled embedding source
-        # try:
-        #     if getattr(self, "core", None) is not None and hasattr(self.core, "parietal"):
-        #         # _encode returns a 1D torch.Tensor on the same device
-        #         pooled = self.core.parietal._encode(text)
-        # except Exception as e:
-        #     self.log(f"[Aeternum] pooling failed: {e}", tag='sys')
-        #
-        # try:
-        #     dec = self.aeternum.update(
-        #         text=text,
-        #         pooled_embedding=pooled,
-        #         is_new_turn=True,
-        #     )
-        #     st = dec.state
-        #     self.last_emotion = st
-        #     # drive kaomoji HUD
-        #     self.hud.set_from_emotion_state(st)
-        # except Exception as e:
-        #     self.log(f"[Aeternum] update failed: {e}", tag='sys')
-
     def _append(self, text: str, tag: str = 'default'):
-        # During very early init, self.term doesn't exist yet.
-        term = getattr(self, "term", None)
-        if term is None:
-            # Fallback: just print to console so we still see the boot logs.
-            print(text, end="")
-            return
-
-        start = term.index('end-1c')
-        term.insert(tk.END, text)
-        end = term.index('end-1c')
+        start = self.term.index('end-1c')
+        self.term.insert(tk.END, text)
+        end = self.term.index('end-1c')
         try:
-            term.tag_add(tag, start, end)
+            self.term.tag_add(tag, start, end)
         except Exception:
             pass
-        term.see(tk.END)
+        self.term.see(tk.END)
 
     def _append_chunk(self, chunk: str, tag: str):
         """Append without extra logic; used by slow-typing."""
         self.term.insert(tk.END, chunk)
         end = self.term.index('end-1c')
-        start = f"{float(end) - 0.0}c"
+        start = f"{float(end) - 0.0}c"  # noop; tag whole chunk via tag_add below (safer if chunk contains newlines)
         try:
             self.term.tag_add(tag, f"{end} - {len(chunk)}c", end)
         except Exception:
@@ -704,7 +709,9 @@ class ArdorGUI(tk.Tk):
         self._append(msg + ('' if nl else '\n'), tag=tag)
 
     def show_thinking(self):
+        """Insert '🧠 Ardor: Thinking…' and tag only the 'Thinking…' part as 'thinking'."""
         self.stop_slow_type()
+        # remove any stale thinking placeholders
         try:
             rng = self.term.tag_nextrange('thinking', '1.0')
             while rng:
@@ -712,11 +719,16 @@ class ArdorGUI(tk.Tk):
                 rng = self.term.tag_nextrange('thinking', rng[0])
         except Exception:
             pass
+
+        # ensure a blank line before the assistant line
         if self.term.get('end-2c', 'end-1c') != '\n':
             self._append("\n", tag='ardor')
+
+        # prefix (kept), then placeholder (to be replaced)
         start_prefix = self.term.index('end-1c')
         self.term.insert(tk.END, "🧠 Ardor: ")
         self.term.tag_add('ardor', start_prefix, self.term.index('end-1c'))
+
         think_start = self.term.index('end-1c')
         self.term.insert(tk.END, "Thinking…")
         think_end = self.term.index('end-1c')
@@ -725,11 +737,15 @@ class ArdorGUI(tk.Tk):
         self.term.see(tk.END)
 
     def replace_thinking_with_stream(self, text: str, tag: str = 'ardor'):
+        """Replace the 'Thinking…' region with slow-typed `text`, starting at the same spot."""
         rng = self.term.tag_nextrange('thinking', '1.0')
         if not rng:
+            # Fallback: no placeholder found, just stream at end.
             self.slow_type((text if text.endswith("\n") else text + "\n"), tag=tag)
             return
+
         start, end = rng
+        # delete just the 'Thinking…' portion (keep '🧠 Ardor: ')
         self.term.delete(start, end)
         mark = f"st_{int(time.time() * 1000)}"
         self.term.mark_set(mark, start)
@@ -749,12 +765,17 @@ class ArdorGUI(tk.Tk):
     def slow_type(self, text: str, tag: str = 'ardor', cps: float | None = None,
                   chunk: int | None = None, trailing_newline: bool = True,
                   at_mark: str | None = None):
+        """
+        Streams `text` at ~cps chars/sec. If `at_mark` is set, inserts *at* that mark
+        (which moves forward as we type) instead of appending to the end.
+        """
         self.stop_slow_type()
         cps = float(self._slowtype_cps if cps is None else cps)
         chunk = int(self._slowtype_chunk if chunk is None else chunk)
         text = text if text.endswith("\n") or not trailing_newline else (text + "\n")
         delay_ms = max(5, int(1000.0 * (chunk / max(1.0, cps))))
         self._slowtype_cancel = False
+
         i = 0
         N = len(text)
 
@@ -779,6 +800,7 @@ class ArdorGUI(tk.Tk):
                         self._append_chunk(remain, tag)
                 self._slowtype_job = None
                 return
+
             j = min(N, i + chunk)
             piece = text[i:j]
             if at_mark:
@@ -786,18 +808,20 @@ class ArdorGUI(tk.Tk):
             else:
                 self._append_chunk(piece, tag)
             i = j
+
             if i >= N:
                 self._slowtype_job = None
                 return
             self._slowtype_job = self.after(delay_ms, step)
 
+        # If appending at end, ensure neat leading newline
         if not at_mark and self.term.get('end-2c', 'end-1c') != '\n':
             self._append("\n", tag=tag)
         self._slowtype_job = self.after(0, step)
 
     # ----- events
     def _on_motion(self, e): self.hud.look_at_root(e.x_root, e.y_root)
-    def _on_any_key(self, _e=None): self.hud.bias_towards_widget(self.input, _duration=1.5)
+    def _on_any_key(self, _e=None): self.hud.bias_towards_widget(self.input, duration=1.5)
 
     # ----- panes helpers
     def _init_sashes(self):
@@ -843,34 +867,38 @@ class ArdorGUI(tk.Tk):
         for f in (self.hud_frame, self.trans_frame, self.input_frame):
             f.configure(bg=theme['bg'])
 
-        self.term.configure(bg=theme['bg'], fg=theme['text'], insertbackground=self.theme['accent3'],
-                            highlightbackground=self.theme['stroke'])
+        self.term.configure(bg=theme['bg'], fg=theme['text'], insertbackground=theme['accent3'],
+                            highlightbackground=theme['stroke'])
         self.status.configure(bg=theme['bg'], fg=theme['text'])
         self.input.configure(bg=theme['panel2'], fg=theme['text'],
-                             insertbackground=self.theme['accent3'], highlightbackground=self.theme['stroke'])
-        self.send_btn.configure(bg=self.theme['accent3'], activebackground=self.theme['accent1'])
+                             insertbackground=theme['accent3'], highlightbackground=theme['stroke'])
+        self.send_btn.configure(bg=theme['accent3'], activebackground=theme['accent1'])
         self.theme_btn.configure(bg=theme['panel'], fg=theme['text'])
-        self.atelier_btn.configure(bg=theme['panel'], fg=theme['text'], activebackground=self.theme['accent1'])
+        self.atelier_btn.configure(bg=theme['panel'], fg=theme['text'], activebackground=theme['accent1'])
         self.scanline.set_theme(theme)
         self.hud.set_theme(theme)
+        if hasattr(self, 'dmn_frame'):
+            self.dmn_frame.configure(bg=theme['panel'], fg=theme['text'], highlightbackground=theme['stroke'])
+            for child in self.dmn_frame.winfo_children():
+                try:
+                    child.configure(bg=theme['panel'])
+                except Exception:
+                    pass
+                for sub in child.winfo_children():
+                    try:
+                        sub.configure(bg=theme['panel'], fg=theme['text'])
+                    except Exception:
+                        pass
         self._configure_text_tags()
 
     # ----- model mgmt
     def list_models(self):
-        dirs = [Path(MODELS_DIR), ROOT_DIR / "Cerebrum" / "Models" / "Ardor"]
-        seen = {}
-        for d in dirs:
-            try:
-                if not d.is_dir():
-                    continue
-                for p in d.glob("*.pt"):
-                    seen[p.name] = str(p.resolve())
-            except Exception:
-                continue
-        names = list(seen.keys())
-        names.sort(key=lambda n: os.path.getmtime(seen[n]), reverse=True)
-        self._model_name_to_path = seen
-        return names
+        try:
+            pts=[f for f in os.listdir(MODELS_DIR) if f.lower().endswith('.pt')]
+            pts.sort(key=lambda n: os.path.getmtime(os.path.join(MODELS_DIR, n)), reverse=True)
+            return pts
+        except Exception:
+            return []
 
     def update_model_dropdown(self):
         models=self.list_models()
@@ -881,7 +909,7 @@ class ArdorGUI(tk.Tk):
     def on_select_model(self):
         name = self.model_var.get().strip()
         if not name: return
-        path=getattr(self, "_model_name_to_path", {}).get(name, os.path.join(MODELS_DIR, name))
+        path=os.path.join(MODELS_DIR, name)
         if not os.path.isfile(path):
             self.log(f"⚠️ Not found: {path}", tag='sys'); return
         tok_path = self.get_selected_tokenizer_path()
@@ -890,10 +918,7 @@ class ArdorGUI(tk.Tk):
     def find_latest_model(self):
         d=MODELS_DIR
         if not os.path.isdir(d): return None
-        pts=[]
-        for lookup in [Path(d), ROOT_DIR / "Cerebrum" / "Models" / "Ardor"]:
-            if lookup.is_dir():
-                pts.extend(str(p.resolve()) for p in lookup.glob("*.pt"))
+        pts=[os.path.join(d,f) for f in os.listdir(d) if f.endswith('.pt')]
         return max(pts, key=lambda p: os.path.getmtime(p)) if pts else None
 
     def resolve_tokenizer_path(self):
@@ -933,7 +958,7 @@ class ArdorGUI(tk.Tk):
             ROOT_DIR / "Cerebrum" / "ProjectTokenizer" / "ardor_tokenizer",
             ROOT_DIR / "ProjectTokenizer" / "ardor_tokenizer",
         ]
-        roots.append(Path(r"C:\\Users\\adm\\PycharmProjects\\ProjectArdor\\Cerebrum\\ProjectTokenizer\\ardor_tokenizer"))
+        roots.append(Path(r"C:\Users\adm\PycharmProjects\ProjectArdor\Cerebrum\ProjectTokenizer\ardor_tokenizer"))
 
         seen = set(); items = []
         for r in roots:
@@ -998,20 +1023,11 @@ class ArdorGUI(tk.Tk):
                 self.log("❌ ArdorCore class not found/callable.", tag='sys'); return False
 
             try:
-                if callable(get_global_core):
-                    self.core = get_global_core(model_path=path, tokenizer_path=tok if tok and os.path.isfile(tok) else None, device='cpu', enable_retrieval=True, encoder_ckpt=None, max_len=getattr(self, 'max_len', 300), force_reload=True)
-                else:
-                    self.core = ArdorCoreCls(model_path=path, tokenizer_path=tok if tok and os.path.isfile(tok) else None, device='cpu')
-                desc = self.core.model_schema() if hasattr(self.core, "model_schema") else getattr(self.core, "schema",
-                                                                                                    {}) or {}
-                mis = desc.get("mismatch") or {}
-                missing_ct = (len(mis.get("missing") or []) if isinstance(mis.get("missing"), list) else int(
-                    mis.get("missing") or 0))
-                unexpected_ct = (len(mis.get("unexpected") or []) if isinstance(mis.get("unexpected"), list) else int(
-                    mis.get("unexpected") or 0))
+                self.core = ArdorCoreCls(model_path=path, tokenizer_path=tok if tok and os.path.isfile(tok) else None, device='cpu', enable_dmn=True)
+                desc = getattr(self.core, "model_desc", {})
                 self.log(f"🧠 Model schema: layers={desc.get('layers')} heads={desc.get('heads')} "
                          f"hidden={desc.get('hidden')} max_len={desc.get('max_len')} "
-                         f"mismatch: missing={missing_ct} unexpected={unexpected_ct}", tag='sys')
+                         f"mismatch: missing={desc.get('missing')} unexpected={desc.get('unexpected')}", tag='sys')
 
                 if (desc.get('missing', 0) or desc.get('unexpected', 0)):
                     self.log("⚠️ Checkpoint/schema mismatch detected — quality may be degraded. "
@@ -1022,10 +1038,7 @@ class ArdorGUI(tk.Tk):
                 tok_fallback = self.resolve_tokenizer_path()
                 if not tok_fallback:
                     self.log("❌ No tokenizer found in fallback resolver.", tag='sys'); return False
-                if callable(get_global_core):
-                    self.core = get_global_core(model_path=path, tokenizer_path=tok_fallback, device='cpu', enable_retrieval=True, encoder_ckpt=None, max_len=getattr(self, 'max_len', 300), force_reload=True)
-                else:
-                    self.core = ArdorCoreCls(model_path=path, tokenizer_path=tok_fallback, device='cpu')
+                self.core = ArdorCoreCls(model_path=path, tokenizer_path=tok_fallback, device='cpu', enable_dmn=True)
 
             self.current_model = os.path.basename(path)
 
@@ -1061,29 +1074,22 @@ class ArdorGUI(tk.Tk):
                 if mt>last_mtime:
                     tok_path = self.get_selected_tokenizer_path()
                     ok=self.load_model(latest, tok_override=tok_path); last_mtime=mt
-                    self.ui_log(f"[{self.ts()}] 🌙 REM/training finished — auto-switched to newest brain." if ok
-                                else f"[{self.ts()}] 🌙 New model detected but failed to load.", tag='sys')
+                    self.log(f"[{self.ts()}] 🌙 REM/training finished — auto-switched to newest brain." if ok
+                             else f"[{self.ts()}] 🌙 New model detected but failed to load.", tag='sys')
             time.sleep(5)
 
     # ----- intents / generation -----
     def on_send(self, _=None):
+        # Cancel any ongoing slow-type so outputs don't overlap
         self.stop_slow_type()
-        text = self.input.get('1.0', 'end-1c').strip()
-        self.input.delete('1.0', 'end')
-        self._autosize_input()
-        if not text:
-            return
+        self._last_user_activity_ts = time.time()
 
+        text=self.input.get('1.0','end-1c').strip(); self.input.delete('1.0','end'); self._autosize_input()
+        if not text: return
         self.log(f"[{self.ts()}] You > {text}", tag='ardor')
-
-        # update emotion and HUD from the user's message
-        self.update_emotion_from_text(text)
-
-        if self.pending_plan and text.lower() in ("y", "yes", "ok", "confirm", "do it"):
-            self.execute_plan(self.pending_plan);
-            self.pending_plan = None;
-            return
-        it = self.parser.parse(text)
+        if self.pending_plan and text.lower() in ("y","yes","ok","confirm","do it"):
+            self.execute_plan(self.pending_plan); self.pending_plan=None; return
+        it=self.parser.parse(text)
         if it: self.route_intents(it); return
         Thread(target=self.generate, args=(text,), daemon=True).start()
 
@@ -1135,33 +1141,39 @@ class ArdorGUI(tk.Tk):
         kwargs={"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP, "close_fds": True} if WIN else {"start_new_session": True}
         self.anim_event.clear(); Thread(target=self.animate_state, args=(label,), daemon=True).start()
         try:
-            self.proc=subprocess.Popen(cmd, **kwargs); self.ui_log(f"↗ Started: {' '.join(cmd)}", tag='sys')
+            self.proc=subprocess.Popen(cmd, **kwargs); self.log(f"↗ Started: {' '.join(cmd)}", tag='sys')
             Thread(target=self.monitor_process, daemon=True).start()
         except Exception as e:
-            self.ui_log(f"⚠️ Launch error: {e}", tag='sys')
+            self.log(f"⚠️ Launch error: {e}", tag='sys')
 
     def monitor_process(self):
         rc=self.proc.wait(); self.anim_event.set()
         if rc==0:
-            self.ui_log("✅ Process finished — switching to newest model…", tag='sys')
+            self.log("✅ Process finished — switching to newest model…", tag='sys')
             latest=self.find_latest_model()
-            if latest: self.ui(self.load_model, latest, self.get_selected_tokenizer_path())
+            if latest: self.load_model(latest, tok_override=self.get_selected_tokenizer_path())
         else:
-            self.ui_log("⏰ Process interrupted or failed.", tag='sys')
+            self.log("⏰ Process interrupted or failed.", tag='sys')
         self.proc=None
 
     def _is_junky(self, s: str) -> bool:
         s = re.sub(r'\s+', ' ', s).strip()
         if not s:
             return True
+
         letters = sum(ch.isalpha() for ch in s)
         if letters == 0:
             return True
+
+        # Allow short, normal sentences
         if len(s) < 30:
             punct = sum(ch in '.,;:!?()[]{}\'"\\/|_~`^+-=*' for ch in s)
+            # Only treat as junk if it's *really* off
             if letters < 6 or punct > letters * 1.8:
                 return True
             return False
+
+        # For longer text keep the old sanity checks, but a bit looser
         punct = sum(ch in '.,;:!?()[]{}\'"\\/|_~`^+-=*' for ch in s)
         if punct > letters * 1.4:
             return True
@@ -1173,7 +1185,7 @@ class ArdorGUI(tk.Tk):
         i=0
         while not self.anim_event.is_set():
             bar="█"*(i%12)+"-"*(11-(i%12)); i+=1
-            self.ui_log(f"\n   [{bar}]  {label}\n", tag='sys'); time.sleep(0.25)
+            self._append(f"\n   [{bar}]  {label}\n", tag='sys'); time.sleep(0.25)
 
     def _cleanup_wiki_noise(self, text: str) -> str:
         text = re.sub(r'(?:\r?\n)*(References|External links|See also)\b.*', '', text, flags=re.I | re.S)
@@ -1187,54 +1199,24 @@ class ArdorGUI(tk.Tk):
 
     def generate(self, prompt: str):
         if not self.core:
-            self.ui_log("⚠️ Model not loaded.", tag='sys');
+            self.log("⚠️ Model not loaded.", tag='sys');
             return
 
-        self.ui(self.show_thinking)
+        self.after(0, self.show_thinking)
 
         try:
-            temp = DECODE_CFG['temperature']
-            topp = DECODE_CFG['top_p']
-            rep = DECODE_CFG['rep_penalty']
-
-            if getattr(self, "aeternum", None) and getattr(self, "last_emotion", None):
-                try:
-                    nm = getattr(self.aeternum, "neuromodulators", None)
-                    if nm is not None:
-                        scales = nm.compute_decoding_scales(self.last_emotion)
-                        temp *= scales.get("temperature_scale", 1.0)
-                        topp *= scales.get("top_p_scale", 1.0)
-                        rep *= scales.get("rep_penalty_scale", 1.0)
-                except Exception as e:
-                    self.ui_log(f"[Aeternum] neuromodulator error: {e}", tag='sys')
-
-            temp = DECODE_CFG['temperature']
-            topp = DECODE_CFG['top_p']
-            rep = DECODE_CFG['rep_penalty']
-
-            if getattr(self, "aeternum", None) and getattr(self, "last_emotion", None):
-                try:
-                    nm = getattr(self.aeternum, "neuromodulators", None)
-                    if nm is not None:
-                        scales = nm.compute_decoding_scales(self.last_emotion)
-                        temp *= scales.get("temperature_scale", 1.0)
-                        topp *= scales.get("top_p_scale", 1.0)
-                        rep *= scales.get("rep_penalty_scale", 1.0)
-                except Exception as e:
-                    self.ui_log(f"[Aeternum] neuromodulator error: {e}", tag='sys')
-
             raw = self.core.generate_text(
                 prompt,
-                temperature=temp,
-                top_p=topp,
-                rep_penalty=rep,
+                temperature=DECODE_CFG['temperature'],
+                top_p=DECODE_CFG['top_p'],
+                rep_penalty=DECODE_CFG['rep_penalty'],
                 ngram_block=DECODE_CFG['ngram'],
                 persona_primer=""
             )
-
             ans = self._cleanup_wiki_noise(raw or "")
             txt = (ans if ans else raw).strip()
 
+            # --- fallback if empty or junky ---
             if not txt or self._is_junky(txt):
                 raw2 = self.core.generate_text(
                     prompt,
@@ -1249,35 +1231,35 @@ class ArdorGUI(tk.Tk):
                     stop_on_eos=False
                 )
                 txt2 = self._cleanup_wiki_noise(raw2 or "").strip()
-                if txt2 and (not self._is_junky(txt2)) and (len(txt2) >= max(len(txt) + 10, 30)):
-                    self.ui_log("↻ Fallback decode (safer settings)…", tag='sys')
-                    txt = txt2
 
-            self.ui(self.replace_thinking_with_stream, txt, 'ardor')
+                # Only switch (and log) if the fallback is clearly better
+                if txt2 and (not self._is_junky(txt2)) and (len(txt2) >= max(len(txt) + 10, 30)):
+                    self.log("↻ Fallback decode (safer settings)…", tag='sys')
+                    txt = txt2 # keep something
+
+            self.after(0, lambda: self.replace_thinking_with_stream(txt, tag='ardor'))
+            self.after(0, self._update_dmn_panel)
 
         except Exception as e:
-            self.ui_log(f"⚠️ {e}", tag='sys')
+            self.log(f"⚠️ {e}", tag='sys')
+            self.after(0, self._update_dmn_panel)
 
     # ----- REM status -----
     def simulate_rem_sleep(self):
-        path=str((ARTIFACTS_REM_DIR / "rem_status.json").resolve())
+        path="rem_status.json"
         while True:
             if os.path.exists(path):
                 try:
                     d=json.load(open(path))
                     pct=d.get("progress",0); epoch=d.get("epoch",0); tot=d.get("total_epochs",1); loss=d.get("loss",0.0)
                     ts=time.strftime('%H:%M:%S', time.localtime(d.get('timestamp', time.time())))
-                    self.ui(self.status.configure, text=f"REM {epoch}/{tot} loss={loss}  {pct}% @ {ts}")
-                    if not self.progress.winfo_ismapped():
-                        self.ui(self.progress.pack, {'pady':6})
-                        self.ui(self.status.pack)
-                    self.ui(setattr, self.progress, 'value', pct)
+                    self.status.configure(text=f"REM {epoch}/{tot} loss={loss}  {pct}% @ {ts}")
+                    if not self.progress.winfo_ismapped(): self.progress.pack(pady=6); self.status.pack()
+                    self.progress['value']=pct
                 except Exception:
-                    self.ui(self.status.configure, text="REM: status error")
+                    self.status.configure(text="REM: status error")
             else:
-                if self.progress.winfo_ismapped():
-                    self.ui(self.progress.pack_forget)
-                    self.ui(self.status.pack_forget)
+                if self.progress.winfo_ismapped(): self.progress.pack_forget(); self.status.pack_forget()
             time.sleep(2)
 
     # ----- misc -----
@@ -1300,7 +1282,7 @@ class ArdorGUI(tk.Tk):
             ok+=int(good); self.log(f"Passed {ok}/{len(cases)} tests.\n", tag='sys')
 
     # ----- handoff: switch to Atelier (Qt) -----
-    def _find_atelier_script(self) -> Path | None:
+    def _find_atelier_script(self):
         cands = [
             ROOT_DIR / "Hephaestus" / "Atelier.py",
             ROOT_DIR / "Atelier.py",
