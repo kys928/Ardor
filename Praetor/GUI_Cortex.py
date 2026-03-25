@@ -1,6 +1,6 @@
 # GUI_Cortex.py — Ardor Autonomy HUD (Elodin Retro Orange style + scanline + grid)
 from __future__ import annotations
-import os, sys, time, json, math, random, subprocess, platform, re, importlib, inspect, traceback as tb
+import os, sys, time, json, math, random, subprocess, platform, re, traceback as tb
 from threading import Thread, Event, Timer
 from datetime import datetime, timedelta
 import tkinter as tk
@@ -38,6 +38,12 @@ def _ardor_root() -> Path:
 ROOT_DIR: Path = (RUNTIME_PATHS.ROOT if RUNTIME_PATHS else _ardor_root()).resolve()
 
 # ---------------- core import ----------------
+sys.path.append("../Cerebrum/Cortex")
+
+try:
+    from prefrontal_cortex import get_global_core
+except Exception:
+    get_global_core = None
 from importlib.machinery import SourceFileLoader
 from importlib.util import spec_from_loader, module_from_spec
 
@@ -1019,10 +1025,17 @@ class ArdorGUI(tk.Tk):
                 except Exception as e:
                     self.log(f"⚠️ Failed reading meta: {e}", tag='sys')
 
-            if not callable(ArdorCoreCls):
-                self.log("❌ ArdorCore class not found/callable.", tag='sys'); return False
+            if not callable(get_global_core):
+                self.log("❌ get_global_core entrypoint is unavailable.", tag='sys'); return False
 
             try:
+                self.core = get_global_core(model_path=path, tokenizer_path=tok if tok and os.path.isfile(tok) else None, device='cpu', enable_retrieval=True, encoder_ckpt=None, max_len=getattr(self, 'max_len', 300), force_reload=True)
+                desc = getattr(self.core, "schema", {}) or {}
+                mis = desc.get("mismatch") or {}
+                missing_ct = (len(mis.get("missing") or []) if isinstance(mis.get("missing"), list) else int(
+                    mis.get("missing") or 0))
+                unexpected_ct = (len(mis.get("unexpected") or []) if isinstance(mis.get("unexpected"), list) else int(
+                    mis.get("unexpected") or 0))
                 self.core = ArdorCoreCls(model_path=path, tokenizer_path=tok if tok and os.path.isfile(tok) else None, device='cpu', enable_dmn=True)
                 desc = getattr(self.core, "model_desc", {})
                 self.log(f"🧠 Model schema: layers={desc.get('layers')} heads={desc.get('heads')} "
@@ -1038,6 +1051,7 @@ class ArdorGUI(tk.Tk):
                 tok_fallback = self.resolve_tokenizer_path()
                 if not tok_fallback:
                     self.log("❌ No tokenizer found in fallback resolver.", tag='sys'); return False
+                self.core = get_global_core(model_path=path, tokenizer_path=tok_fallback, device='cpu', enable_retrieval=True, encoder_ckpt=None, max_len=getattr(self, 'max_len', 300), force_reload=True)
                 self.core = ArdorCoreCls(model_path=path, tokenizer_path=tok_fallback, device='cpu', enable_dmn=True)
 
             self.current_model = os.path.basename(path)
