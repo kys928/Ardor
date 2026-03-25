@@ -59,7 +59,10 @@ def encoder_forward_pooled(encoder: nn.Module, ids: torch.Tensor) -> torch.Tenso
 def load_encoder_cached(encoder_ckpt: Optional[str], device: str, fallback_decoder_cfg: Optional[ArdorConfig] = None):
     if not encoder_ckpt or not os.path.isfile(encoder_ckpt):
         return None
-    raw = torch.load(encoder_ckpt, map_location=device)
+    try:
+        raw = torch.load(encoder_ckpt, map_location=device, weights_only=False)
+    except TypeError:
+        raw = torch.load(encoder_ckpt, map_location=device)
     meta = read_checkpoint_meta(raw)
 
     if isinstance(raw, torch.nn.Module):

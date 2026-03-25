@@ -97,16 +97,29 @@ def load_emotion_heads_mtl(
             f"emotion_heads_mtl.pt not found. Tried: {', '.join(str(c) for c in candidates)}"
         )
 
-    ckpt = torch.load(ckpt_file, map_location=device)
-    dims = ckpt["dims"]
-    H = int(dims["H"])
-    C_goe = int(dims["C_goe"])
-    C_ed = int(dims["C_ed"])
-    C_meld = int(dims["C_meld"])
-
-    args = ckpt.get("args", {})
-    hidden = int(args.get("hidden", 512))
-    drop = float(args.get("dropout", 0.10))
+    try:
+        try:
+            ckpt = torch.load(ckpt_file, map_location=device, weights_only=False)
+        except TypeError:
+            ckpt = torch.load(ckpt_file, map_location=device)
+        dims = ckpt["dims"]
+        H = int(dims["H"])
+        C_goe = int(dims["C_goe"])
+        C_ed = int(dims["C_ed"])
+        C_meld = int(dims["C_meld"])
+        args = ckpt.get("args", {})
+        hidden = int(args.get("hidden", 512))
+        drop = float(args.get("dropout", 0.10))
+        temps = ckpt.get("temps", {})
+    except Exception as e:
+        print(f"[emotion_heads_runtime] WARNING: failed to load {ckpt_file}: {e}. Using random-init fallback head.")
+        ckpt = None
+        H, C_goe, C_ed, C_meld = 384, 28, 32, 7
+        args = {"hidden": 512, "dropout": 0.10}
+        hidden = 512
+        drop = 0.10
+        temps = {}
+    dims = {"H": H, "C_goe": C_goe, "C_ed": C_ed, "C_meld": C_meld}
 
     model = EmotionHeadsMTL(
         in_dim=H,
@@ -116,15 +129,14 @@ def load_emotion_heads_mtl(
         hidden=hidden,
         drop=drop,
     )
-    model.load_state_dict(ckpt["state_dict"])
-
-    temps = ckpt.get("temps", {})
-    if "T_goe" in temps:
-        model.T_goe.fill_(float(temps["T_goe"]))
-    if "T_ed" in temps:
-        model.T_ed.fill_(float(temps["T_ed"]))
-    if "T_meld" in temps:
-        model.T_meld.fill_(float(temps["T_meld"]))
+    if ckpt is not None:
+        model.load_state_dict(ckpt["state_dict"])
+        if "T_goe" in temps:
+            model.T_goe.fill_(float(temps["T_goe"]))
+        if "T_ed" in temps:
+            model.T_ed.fill_(float(temps["T_ed"]))
+        if "T_meld" in temps:
+            model.T_meld.fill_(float(temps["T_meld"]))
 
     model.to(device)
     model.eval()

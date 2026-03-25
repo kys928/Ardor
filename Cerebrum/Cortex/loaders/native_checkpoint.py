@@ -276,7 +276,10 @@ def describe_model(model: torch.nn.Module, mismatch: Optional[dict] = None) -> D
 
 
 def load_native_decoder(model_path: str, device: str):
-    raw = torch.load(model_path, map_location=device)
+    try:
+        raw = torch.load(model_path, map_location=device, weights_only=False)
+    except TypeError:
+        raw = torch.load(model_path, map_location=device)
     checkpoint_meta = read_checkpoint_meta(raw)
 
     if isinstance(raw, torch.nn.Module):

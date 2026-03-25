@@ -20,6 +20,8 @@ def _looks_like_native_state_dict(p: Path) -> bool:
     if p.suffix.lower() in _NATIVE_FILE_EXTS:
         return True
     try:
+        raw = torch.load(str(p), map_location="cpu", weights_only=False)
+    except TypeError:
         raw = torch.load(str(p), map_location="cpu")
     except Exception:
         return False

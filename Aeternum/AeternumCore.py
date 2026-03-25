@@ -180,7 +180,10 @@ class AeternumCore:
             try:
                 ckpt_path = Path(__file__).with_name("Models") / "amygdala_fear_snn_aversive_v3.pt"
                 if ckpt_path.exists():
-                    sd = torch.load(ckpt_path, map_location=self.cfg.device)
+                    try:
+                        sd = torch.load(ckpt_path, map_location=self.cfg.device, weights_only=False)
+                    except TypeError:
+                        sd = torch.load(ckpt_path, map_location=self.cfg.device)
                     filtered = {k: v for k, v in sd.items() if not (k.endswith("syn.y") or k.endswith("syn.z"))}
                     missing, unexpected = self.amyg.load_state_dict(filtered, strict=False)
                     print(f"[AeternumCore] loaded Amygdala SNN from {ckpt_path}")
