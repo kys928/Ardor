@@ -213,15 +213,26 @@ def slow_type(txt: str, delay: float = 0.005):
 # Compatibility wrappers for moved loader helpers
 # ─────────────────────────────────────────────────────────────────────
 def _read_checkpoint_meta(raw: Any) -> Dict[str, Any]:
-    if isinstance(raw, dict):
-        if isinstance(raw.get("config"), dict):
-            return dict(raw["config"])
-        if isinstance(raw.get("meta"), dict):
-            return dict(raw["meta"])
-        keys = ("vocab_size", "hidden_size", "n_layers", "n_heads", "max_len")
-        if any(k in raw for k in keys):
-            return {k: raw.get(k) for k in keys if k in raw}
-    return {}
+    meta: Dict[str, Any] = {}
+
+    if not isinstance(raw, dict):
+        return meta
+
+    if "arch" in raw:
+        meta["arch"] = raw["arch"]
+
+    if isinstance(raw.get("config"), dict):
+        meta.update(raw["config"])
+
+    if isinstance(raw.get("meta"), dict):
+        for k, v in raw["meta"].items():
+            meta.setdefault(k, v)
+
+    for k in ("vocab_size", "hidden_size", "n_layers", "n_heads", "max_len"):
+        if k in raw and k not in meta:
+            meta[k] = raw[k]
+
+    return meta
 
 
 def _config_from_meta(meta: Dict[str, Any]) -> ArdorConfig:
