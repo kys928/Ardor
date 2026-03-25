@@ -1,6 +1,6 @@
 # GUI_Cortex.py — Ardor Autonomy HUD (Elodin Retro Orange style + scanline + grid)
 from __future__ import annotations
-import os, sys, time, json, math, random, subprocess, platform, re, importlib, inspect, traceback as tb
+import os, sys, time, json, math, random, subprocess, platform, re, traceback as tb
 from threading import Thread, Event, Timer
 from datetime import datetime, timedelta
 import tkinter as tk
@@ -55,68 +55,8 @@ ARTIFACTS_MODELS_DIR.mkdir(parents=True, exist_ok=True)
 ARTIFACTS_REM_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------- core import ----------------
-from importlib.machinery import SourceFileLoader
-from importlib.util import spec_from_loader, module_from_spec
 sys.path.append("../Cerebrum/Cortex")
 
-def _import_module_by_path(py_path: Path):
-    name = py_path.stem + "_dyn"
-    loader = SourceFileLoader(name, str(py_path))
-    spec = spec_from_loader(name, loader)
-    mod = module_from_spec(spec)
-    loader.exec_module(mod)  # type: ignore[attr-defined]
-    return mod
-
-def resolve_ArdorCore():
-    mod_name = os.environ.get("ARDOR_CORE_MODULE", "") or ""
-    cls_name = os.environ.get("ARDOR_CORE_CLASS", "ArdorCore") or "ArdorCore"
-    mod_name, cls_name = mod_name.strip(), cls_name.strip() or "ArdorCore"
-
-    cortex_dir = (ROOT_DIR / "Cerebrum" / "Cortex")
-    if cortex_dir.exists():
-        p = str(cortex_dir.resolve())
-        if p not in sys.path:
-            sys.path.insert(0, p)
-
-    if mod_name:
-        try:
-            if mod_name.lower().endswith(".py") and Path(mod_name).is_file():
-                mod = _import_module_by_path(Path(mod_name))
-            else:
-                mod = importlib.import_module(mod_name)
-            cls = getattr(mod, cls_name, None)
-            if inspect.isclass(cls): return cls
-        except Exception:
-            pass
-
-    for candidate in ("prefrontal_cortex",):
-        try:
-            mod = importlib.import_module(candidate)
-            cls = getattr(mod, "ArdorCore", None)
-            if inspect.isclass(cls): return cls
-        except Exception:
-            pass
-
-    try:
-        if cortex_dir.exists():
-            for py in cortex_dir.glob("*.py"):
-                try:
-                    txt = py.read_text(encoding="utf-8", errors="ignore")
-                except Exception:
-                    continue
-                if re.search(r"\bclass\s+ArdorCore\b", txt):
-                    try:
-                        mod = _import_module_by_path(py)
-                        cls = getattr(mod, "ArdorCore", None)
-                        if inspect.isclass(cls): return cls
-                    except Exception:
-                        continue
-    except Exception:
-        pass
-
-    return None
-
-ArdorCoreCls = resolve_ArdorCore()
 try:
     from prefrontal_cortex import get_global_core
 except Exception:

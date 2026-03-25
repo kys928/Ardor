@@ -14,9 +14,9 @@ PY38-COMPAT: uses from __future__ annotations and avoids PEP 695 features.
 
 from __future__ import annotations
 
-import os, sys, time, json, random, subprocess, re, glob
+import os, sys, time, json, random, subprocess, re
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Tuple, Union
+from typing import Optional, List, Dict, Any, Tuple
 from collections import deque
 
 # ── Optional safety/env toggles for tokenizers (helps avoid thread warnings and gives better traces) ──
@@ -24,14 +24,11 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 os.environ.setdefault("RUST_BACKTRACE", "1")
 
 # NOTE: Encoder import kept, but retrieval is OFF by default and the encoder is not instantiated unless enabled.
-from posterior_parietal_cortex import ArdorEncoder
-from broca_decoder import ArdorDecoder  # noqa: E402
 from ardor_config import ArdorConfig
 
 import torch
 import torch.nn.functional as F
 from tokenizers import Tokenizer
-from tokenizers.decoders import ByteLevel
 
 # Surface polisher (Anterior Cingulate)
 sys.path.append("../Cerebrum/LanguageProcessing")
@@ -90,52 +87,8 @@ def slow_type(txt: str, delay: float = 0.005):
 # ╔═══════════════════════════════════════════════════════════════════╗
 # ║                     Lightweight retrieval memory                  ║
 # ╚═══════════════════════════════════════════════════════════════════╝
-class ParietalMemory:
-    """Text embedding retrieval (DISABLED by default).
-
-    IMPORTANT:
-      - Do NOT enable until you have trained/loaded encoder weights.
-      - Random/untrained encoder embeddings = random memory injection.
-    """
-
-    def __init__(self, tokenizer, device, vocab_size, hidden=384, layers=8, heads=6, max_len=1024):
-        self.device = device
-        self.tok = tokenizer
-        cfg = ArdorConfig(
-            vocab_size=int(vocab_size),
-            hidden_size=int(hidden),
-            n_layers=int(layers),
-            n_heads=int(heads),
-            max_len=int(max_len),
-            dropout=0.1,
-            attn_dropout=0.1,
-            resid_dropout=0.1,
-        )
-        self.encoder = ArdorEncoder(cfg, use_cls_token=False).to(device).eval()
-        self.index_texts: List[str] = []
-        self.index_emb: Optional[torch.Tensor] = None
-
-    def _encode(self, text: str) -> torch.Tensor:
-        ids = self.tok.encode(text).ids[:1024] or [self.tok.token_to_id("<pad>") or 0]
-        x = torch.tensor(ids, dtype=torch.long, device=self.device).unsqueeze(0)  # [1,T]
-        with torch.no_grad():
-            _, pooled = self.encoder(x, return_pooled=True, pool="mean")
-            pooled = F.normalize(pooled, dim=-1)
-        return pooled[0]
-
-    def build_index(self, texts: List[str]):
-        self.index_texts = list(texts)
-        embs = [self._encode(t).unsqueeze(0) for t in texts]
-        self.index_emb = torch.cat(embs, dim=0) if embs else None
-
-    def topk(self, query: str, k: int = 5) -> List[Tuple[str, float]]:
-        if self.index_emb is None or len(self.index_texts) == 0:
-            return []
-        q = self._encode(query).unsqueeze(0)
-        sims = (q @ self.index_emb.T).squeeze(0)
-        vals, idx = torch.topk(sims, k=min(k, sims.numel()))
-        return [(self.index_texts[i], float(vals[j])) for j, i in enumerate(idx.tolist())]
-
+# Legacy retrieval owner removed: retrieval is now owned by backends.retrieval.RetrievalBackend
+# via self.retrieval_backend in ArdorCore.
 
 # ╔═══════════════════════════════════════════════════════════════════╗
 # ║                           Decoding helpers                        ║
@@ -282,568 +235,8 @@ class EarlyQuestionTamer:
             logits_1d[self.q_id] -= self.penalty
 
 
-# ╔═══════════════════════════════════════════════════════════════════╗
-# ║             Checkpoint compatibility / key remapping              ║
-# ╚═══════════════════════════════════════════════════════════════════╝
-
-def _unwrap_state_dict(raw) -> Union[dict, torch.nn.Module]:
-    if isinstance(raw, torch.nn.Module):
-        return raw
-    if isinstance(raw, dict):
-        for k in ("state_dict", "model_state_dict", "module", "model"):
-            v = raw.get(k)
-            if isinstance(v, dict) and any(isinstance(t, torch.Tensor) for t in v.values()):
-                return v
-        if any(isinstance(t, torch.Tensor) for t in raw.values()):
-            return raw
-    raise ValueError("Unsupported checkpoint format: cannot find a flat state_dict.")
-
-
-def _remap_to_model_schema(sd: dict, model_state_keys: set[str]) -> dict:
-    """Map common naming variants to this model's expected schema using `model_state_keys`."""
-
-    if any(k.startswith("_orig_mod.") for k in sd):
-        sd = {
-            (k.replace("_orig_mod.", "", 1) if k.startswith("_orig_mod.") else k): v
-            for k, v in sd.items()
-        }
-
-    new = dict(sd)
-
-    def _rename_prefix(d, old, newp):
-        if any(k.startswith(old) for k in d):
-            out = {}
-            for k, v in d.items():
-                out[newp + k[len(old):] if k.startswith(old) else k] = v
-            return out
-        return d
-
-    # token embeddings → token_embed.
-    for alias in ("token.", "tok_embeddings.", "embed_tokens.", "embedding."):
-        new = _rename_prefix(new, alias, "token_embed.")
-
-    # blocks/layers
-    expects_blocks = any(k.startswith("blocks.") for k in model_state_keys)
-    expects_layers = any(k.startswith("layers.") for k in model_state_keys)
-    has_blocks = any(k.startswith("blocks.") for k in new)
-    has_layers = any(k.startswith("layers.") for k in new)
-    if expects_blocks and has_layers:
-        new = _rename_prefix(new, "layers.", "blocks.")
-    elif expects_layers and has_blocks:
-        new = _rename_prefix(new, "blocks.", "layers.")
-
-    # attention/attn
-    expects_attn = any(".attn." in k for k in model_state_keys)
-    expects_attention = any(".attention." in k for k in model_state_keys)
-    has_attn = any(".attn." in k for k in new)
-    has_attention = any(".attention." in k for k in new)
-    if expects_attn and has_attention:
-        new = {k.replace(".attention.", ".attn."): v for k, v in new.items()}
-    elif expects_attention and has_attn:
-        new = {k.replace(".attn.", ".attention."): v for k, v in new.items()}
-
-    # q_proj/k_proj/v_proj/out_proj → q/k/v/out
-    tmp = {}
-    for k, v in new.items():
-        k2 = (
-            k.replace(".q_proj.", ".q.")
-            .replace(".k_proj.", ".k.")
-            .replace(".v_proj.", ".v.")
-            .replace(".o_proj.", ".out.")
-            .replace(".out_proj.", ".out.")
-        )
-        tmp[k2] = v
-    new = tmp
-
-    # heads/output naming
-    expects_lm = any(k.startswith("lm_head.") for k in model_state_keys)
-    expects_vocab = any(k.startswith("to_vocab.") for k in model_state_keys)
-    has_lm = any(k.startswith("lm_head.") for k in new)
-    has_vocab = any(k.startswith("to_vocab.") for k in new)
-    for alias in ("to_logits.", "output.", "generator."):
-        if any(k.startswith(alias) for k in new) and not has_lm and expects_lm:
-            new = _rename_prefix(new, alias, "lm_head.")
-            has_lm = True
-    if expects_lm and has_vocab:
-        new = _rename_prefix(new, "to_vocab.", "lm_head.")
-    elif expects_vocab and has_lm:
-        new = _rename_prefix(new, "lm_head.", "to_vocab.")
-
-    # MLP aliases → ff.0 / ff.2
-    tmp = {}
-    for k, v in new.items():
-        k2 = k.replace(".mlp.fc1.", ".ff.0.").replace(".mlp.fc2.", ".ff.2.")
-        tmp[k2] = v
-    new = tmp
-
-    # position embedding param/weight
-    expects_posparam = "pos" in model_state_keys
-    expects_posembed = "position_embed.weight" in model_state_keys
-    has_posparam = "pos" in new
-    has_pos_embed = "position_embed.weight" in new
-
-    if expects_posparam and has_pos_embed and "pos" not in new:
-        w = new["position_embed.weight"]
-        try:
-            if getattr(w, "ndim", None) == 2:
-                new["pos"] = w.unsqueeze(0)  # [T,H] → [1,T,H]
-        except Exception:
-            pass
-        new.pop("position_embed.weight", None)
-
-    if expects_posembed and has_posparam and "position_embed.weight" not in new:
-        w = new["pos"]
-        try:
-            if getattr(w, "ndim", None) == 3 and w.shape[0] == 1:
-                new["position_embed.weight"] = w.squeeze(0)  # [1,T,H] → [T,H]
-        except Exception:
-            pass
-        new.pop("pos", None)
-
-    return new
-
-
-def _infer_dims_from_state(sd: Dict[str, torch.Tensor]) -> Tuple[int, int, int, int]:
-    """Return vocab, hidden, layers, max_len using only tensor shapes/names."""
-
-    # (1) prefer explicit token/lm-head tensors as [vocab, hidden]
-    for k in ("token_embed.weight", "lm_head.weight", "to_vocab.weight"):
-        t = sd.get(k)
-        if isinstance(t, torch.Tensor) and t.ndim == 2:
-            vocab = int(t.shape[0])
-            hidden = int(t.shape[1])
-            break
-    else:
-        # fallback: pick the largest-row 2D non-square matrix as [vocab, hidden]
-        twoD = [(k, t) for k, t in sd.items() if isinstance(t, torch.Tensor) and t.ndim == 2]
-        nonsq = [(k, t) for k, t in twoD if int(t.shape[0]) != int(t.shape[1])]
-        pool = nonsq or twoD
-        if not pool:
-            raise KeyError("No 2D tensors found in checkpoint; cannot infer vocab/hidden.")
-        _, t_big = max(pool, key=lambda kv: int(kv[1].shape[0]))
-        vocab = int(t_big.shape[0])
-        hidden = int(t_big.shape[1])
-
-    # (2) infer layers from attention/MLP weights with block indices
-    twoD = [(k, t) for k, t in sd.items() if isinstance(t, torch.Tensor) and t.ndim == 2]
-    patts = [r"(?:layers|blocks|h|layer)\.(\d+)\."]
-    idxs: List[int] = []
-    for k in sd.keys():
-        for p in patts:
-            m = re.search(p, k)
-            if m:
-                idxs.append(int(m.group(1)))
-                break
-    layers = (max(idxs) + 1) if idxs else 8
-
-    # (3) infer max_len from positional embedding shapes
-    max_len = None
-    for k, t in sd.items():
-        if isinstance(t, torch.Tensor) and t.ndim == 2:
-            r, c = int(t.shape[0]), int(t.shape[1])
-            if c == hidden and re.search(r"(pos|position).*emb.*weight", k, re.I):
-                max_len = r
-                break
-        if isinstance(t, torch.Tensor) and t.ndim == 3 and t.shape[0] in (1,):
-            r, c = int(t.shape[1]), int(t.shape[2])
-            if c == hidden:
-                max_len = r
-                break
-    if max_len is None:
-        max_len = 2048
-
-    return vocab, hidden, layers, int(max_len)
-
-
-def _best_heads(hidden: int, prefer: int = 6) -> int:
-    if prefer > 1 and hidden % prefer == 0:
-        return prefer
-    divisors = [d for d in range(2, 65) if hidden % d == 0]
-    return max(divisors) if divisors else 1
-
-
-def _introspect_model(model: torch.nn.Module, sd: Optional[Dict[str, torch.Tensor]] = None) -> Dict[str, Any]:
-    """Extract layers/heads/hidden/max_len robustly from module or fallback to state_dict."""
-
-    info: Dict[str, Any] = {"layers": None, "heads": None, "hidden": None, "max_len": None, "vocab": None}
-
-    # direct attributes
-    for a in ("layers", "num_layers", "n_layers"):
-        info["layers"] = info["layers"] or getattr(model, a, None)
-    for a in ("heads", "num_heads", "n_heads"):
-        info["heads"] = info["heads"] or getattr(model, a, None)
-    for a in ("hidden", "hidden_dim", "embed_dim", "d_model"):
-        info["hidden"] = info["hidden"] or getattr(model, a, None)
-    for a in ("max_len", "max_seq_len", "context_len", "ctx_len"):
-        info["max_len"] = info["max_len"] or getattr(model, a, None)
-
-    # vocab via embedding/LM head
-    try:
-        if hasattr(model, "lm_head") and hasattr(model.lm_head, "weight"):
-            info["vocab"] = int(model.lm_head.weight.shape[0])
-        elif hasattr(model, "token_embed") and hasattr(model.token_embed, "weight"):
-            info["vocab"] = int(model.token_embed.weight.shape[0])
-    except Exception:
-        pass
-
-    # fallback via state_dict
-    if sd is None:
-        try:
-            sd = model.state_dict()
-        except Exception:
-            sd = None
-    if sd is not None:
-        try:
-            v, h, L, T = _infer_dims_from_state(sd)
-            info["vocab"] = info["vocab"] or v
-            info["hidden"] = info["hidden"] or h
-            info["layers"] = info["layers"] or L
-            info["max_len"] = info["max_len"] or T
-            if not info.get("heads") and info.get("hidden"):
-                info["heads"] = _best_heads(int(info["hidden"]))
-        except Exception:
-            pass
-
-    return info
-
-
-# ╔═══════════════════════════════════════════════════════════════════╗
-# ║                              ArdorCore                            ║
-# ╚═══════════════════════════════════════════════════════════════════╝
-
-MODEL_REGISTRY = {
-    "ArdorDecoder": ArdorDecoder,
-}
-
-ENCODER_REGISTRY = {
-    "ArdorEncoder": ArdorEncoder,
-}
-
-
-def _read_checkpoint_meta(raw) -> dict:
-    meta: Dict[str, Any] = {}
-    if isinstance(raw, torch.nn.Module):
-        if hasattr(raw, "model_config") and callable(raw.model_config):
-            try:
-                meta.update(raw.model_config() or {})
-            except Exception:
-                pass
-        meta.setdefault("arch", type(raw).__name__)
-        return dict(meta)
-
-    if not isinstance(raw, dict):
-        return meta
-
-    top_keys = [
-        "arch", "vocab_size", "hidden_size", "hidden", "n_layers", "layers", "n_heads", "heads",
-        "ff_mult", "max_len", "dropout", "attn_dropout", "resid_dropout", "layernorm_eps",
-        "use_rope", "rope_theta", "tokenizer_path", "tokenizer_vocab_size", "tokenizer_hash",
-        "tokenizer_sha256", "positional_encoding",
-    ]
-
-    for src in (raw.get("meta") if isinstance(raw.get("meta"), dict) else {},
-                raw.get("model_config") if isinstance(raw.get("model_config"), dict) else {},
-                raw.get("config") if isinstance(raw.get("config"), dict) else {},
-                raw):
-        if not isinstance(src, dict):
-            continue
-        for k in top_keys:
-            if k in src and k not in meta:
-                meta[k] = src[k]
-
-    cfg = raw.get("config")
-    if isinstance(cfg, dict):
-        meta["config"] = dict(cfg)
-
-    if "hidden_size" not in meta and "hidden" in meta:
-        meta["hidden_size"] = meta["hidden"]
-    if "n_layers" not in meta and "layers" in meta:
-        meta["n_layers"] = meta["layers"]
-    if "n_heads" not in meta and "heads" in meta:
-        meta["n_heads"] = meta["heads"]
-
-    if isinstance(meta.get("config"), dict):
-        c = meta["config"]
-        for k in ("vocab_size", "hidden_size", "hidden", "n_layers", "layers", "n_heads", "heads",
-                  "ff_mult", "max_len", "dropout", "attn_dropout", "resid_dropout", "layernorm_eps",
-                  "use_rope", "rope_theta"):
-            if k not in meta and k in c:
-                meta[k] = c[k]
-    return dict(meta)
-
-
-def _config_from_meta(meta: dict, *, default_vocab: int | None = None) -> ArdorConfig:
-    norm = dict(meta or {})
-    if "hidden_size" not in norm and "hidden" in norm:
-        norm["hidden_size"] = norm["hidden"]
-    if "n_layers" not in norm and "layers" in norm:
-        norm["n_layers"] = norm["layers"]
-    if "n_heads" not in norm and "heads" in norm:
-        norm["n_heads"] = norm["heads"]
-    if "vocab_size" not in norm and default_vocab is not None:
-        norm["vocab_size"] = int(default_vocab)
-
-    required = ["vocab_size", "hidden_size", "n_layers", "n_heads", "max_len"]
-    missing = [k for k in required if k not in norm]
-    if missing:
-        raise ValueError(f"Cannot build ArdorConfig from metadata: missing {', '.join(missing)}")
-
-    return ArdorConfig.from_dict(norm)
-
-
-def _resolve_state_dict_from_raw(raw) -> dict:
-    if isinstance(raw, dict):
-        for k in ("state_dict", "model_state_dict", "module", "model"):
-            v = raw.get(k)
-            if isinstance(v, dict) and any(isinstance(t, torch.Tensor) for t in v.values()):
-                return v
-    if isinstance(raw, dict) and any(isinstance(t, torch.Tensor) for t in raw.values()):
-        return raw
-    raise ValueError("Unsupported checkpoint format: cannot find a flat state_dict.")
-
-
-def _sha256_file(path: str) -> str:
-    import hashlib
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def _load_tokenizer_matching_vocab(tokenizer_path: Optional[str], want_vocab: int, checkpoint_meta: Optional[dict] = None) -> Tuple[Tokenizer, str]:
-    meta = checkpoint_meta or {}
-    seen: set[str] = set()
-    candidates: list[tuple[str, int, float, str]] = []
-
-    roots = [
-        str(REPO_ROOT / "Cerebrum" / "ProjectTokenizer" / "ardor_tokenizer"),
-        str(REPO_ROOT),
-        os.getcwd(),
-    ]
-    if tokenizer_path:
-        roots.insert(0, os.path.dirname(os.path.abspath(tokenizer_path)) or os.getcwd())
-    meta_tok = meta.get("tokenizer_path")
-    if isinstance(meta_tok, str) and meta_tok:
-        roots.insert(0, os.path.dirname(os.path.abspath(meta_tok)) or os.getcwd())
-
-    for r in roots:
-        rr = os.path.abspath(r)
-        if not os.path.isdir(rr):
-            continue
-        for patt in ("tokenizer*.json", "tokenizer.json"):
-            for p in glob.glob(os.path.join(rr, patt)):
-                ap = os.path.abspath(p)
-                if ap in seen:
-                    continue
-                seen.add(ap)
-                try:
-                    t = Tokenizer.from_file(ap)
-                    vocab = int(t.get_vocab_size())
-                    mtime = os.path.getmtime(ap)
-                    sha = _sha256_file(ap)
-                    candidates.append((ap, vocab, mtime, sha))
-                except Exception:
-                    continue
-
-    def pick_by_path(path: Optional[str]):
-        if not path:
-            return None
-        ap = os.path.abspath(path)
-        for c in candidates:
-            if c[0] == ap:
-                return c
-        return None
-
-    meta_sha = str(meta.get("tokenizer_sha256") or meta.get("tokenizer_hash") or "").strip().lower()
-
-    for c in (pick_by_path(tokenizer_path), pick_by_path(meta_tok)):
-        if c and c[1] == int(want_vocab):
-            return Tokenizer.from_file(c[0]), c[0]
-
-    if meta_sha:
-        for ap, vocab, _, sha in candidates:
-            if sha.lower() == meta_sha and vocab == int(want_vocab):
-                return Tokenizer.from_file(ap), ap
-
-    exact = [c for c in candidates if c[1] == int(want_vocab)]
-    if exact:
-        exact.sort(key=lambda x: x[2], reverse=True)
-        return Tokenizer.from_file(exact[0][0]), exact[0][0]
-
-    if candidates:
-        candidates.sort(key=lambda x: x[2], reverse=True)
-        return Tokenizer.from_file(candidates[0][0]), candidates[0][0]
-
-    raise FileNotFoundError(f"No tokenizer JSON found for vocab {want_vocab}")
-
-
-def _load_required_meta(model_path: str, tokenizer_path_hint: str | None) -> dict:
-    meta_path = Path(model_path).with_suffix('.meta.json')
-    if meta_path.exists():
-        try:
-            return json.loads(meta_path.read_text(encoding='utf-8'))
-        except Exception:
-            return {}
-    strict = os.environ.get("ARDOR_STRICT_META", "").strip().lower() in {"1", "true", "yes"}
-    if strict:
-        raise FileNotFoundError(f"Strict metadata mode enabled and meta file is missing: {meta_path}")
-    return {}
-
-
-
-def _generic_tokenizer_candidates() -> List[str]:
-    return generic_tokenizer_candidates(REPO_ROOT)
-
-
-def _describe_model(model: torch.nn.Module, mismatch: Optional[dict] = None) -> Dict[str, Any]:
-    desc = _introspect_model(model)
-    if hasattr(model, "model_config") and callable(model.model_config):
-        try:
-            meta = model.model_config() or {}
-            if isinstance(meta, dict):
-                desc.update({
-                    "vocab": meta.get("vocab_size", desc.get("vocab")),
-                    "hidden": meta.get("hidden_size", meta.get("hidden", desc.get("hidden"))),
-                    "layers": meta.get("n_layers", meta.get("layers", desc.get("layers"))),
-                    "heads": meta.get("n_heads", meta.get("heads", desc.get("heads"))),
-                    "max_len": meta.get("max_len", desc.get("max_len")),
-                })
-        except Exception:
-            pass
-    desc["mismatch"] = mismatch or {"missing": [], "unexpected": []}
-    return desc
-
-
-def _load_broca_cached(model_path: str, device: str, tokenizer_path_hint: Optional[str] = None):
-    raw = torch.load(model_path, map_location=device)
-    checkpoint_meta = _read_checkpoint_meta(raw)
-    file_meta = _load_required_meta(model_path, tokenizer_path_hint)
-    if isinstance(file_meta, dict):
-        merged = dict(file_meta)
-        merged.update(checkpoint_meta)
-        checkpoint_meta = merged
-
-    missing_list: List[str] = []
-    unexpected_list: List[str] = []
-
-    if isinstance(raw, torch.nn.Module):
-        model = raw.to(device).eval()
-        try:
-            want_vocab = int(model.lm_head.weight.shape[0])
-        except Exception:
-            want_vocab = int(model.token_embed.weight.shape[0])
-        model_desc = _describe_model(model)
-        return model, model_desc, want_vocab, checkpoint_meta, None
-
-    sd = _resolve_state_dict_from_raw(raw)
-    model = None
-
-    try:
-        arch = checkpoint_meta.get("arch") or checkpoint_meta.get("model")
-        if arch in MODEL_REGISTRY:
-            cfg = ArdorConfig.from_dict(checkpoint_meta)
-            model = MODEL_REGISTRY[arch](cfg)
-    except Exception:
-        model = None
-
-    if model is None:
-        vocab, hidden, layers, max_len = _infer_dims_from_state(sd)
-        use_rope = "position_embed.weight" not in sd
-        heads = _best_heads(hidden)
-        cfg = ArdorConfig(
-            vocab_size=vocab,
-            hidden_size=hidden,
-            n_layers=layers,
-            n_heads=heads,
-            max_len=max_len,
-            dropout=float(checkpoint_meta.get("dropout", 0.15) or 0.15),
-            attn_dropout=float(checkpoint_meta.get("attn_dropout", checkpoint_meta.get("dropout", 0.15)) or 0.15),
-            resid_dropout=float(checkpoint_meta.get("resid_dropout", checkpoint_meta.get("dropout", 0.15)) or 0.15),
-            ff_mult=int(checkpoint_meta.get("ff_mult", 4) or 4),
-            layernorm_eps=float(checkpoint_meta.get("layernorm_eps", 1e-5) or 1e-5),
-            use_rope=bool(checkpoint_meta.get("use_rope", use_rope)),
-            rope_theta=float(checkpoint_meta.get("rope_theta", 10000.0) or 10000.0),
-        )
-        model = ArdorDecoder(cfg)
-
-    remapped = _remap_to_model_schema(sd, set(model.state_dict().keys()))
-    try:
-        model.load_state_dict(remapped, strict=True)
-    except Exception:
-        missing, unexpected = model.load_state_dict(remapped, strict=False)
-        missing_list = list(missing) if isinstance(missing, list) else list(missing or [])
-        unexpected_list = list(unexpected) if isinstance(unexpected, list) else list(unexpected or [])
-        print(f"[load] non-strict: missing={len(missing_list or [])} unexpected={len(unexpected_list or [])}")
-
-    model = model.to(device).eval()
-    want_vocab = int(getattr(model, "vocab_size", 0) or _infer_dims_from_state(sd)[0])
-    model_desc = _describe_model(model, {"missing": missing_list, "unexpected": unexpected_list})
-    return model, model_desc, want_vocab, checkpoint_meta, remapped
-
-
-def _infer_encoder_dims_from_state(sd: Dict[str, torch.Tensor], fallback_cfg: Optional[ArdorConfig] = None) -> ArdorConfig:
-    if "token_embed.weight" in sd:
-        vocab = int(sd["token_embed.weight"].shape[0])
-        hidden = int(sd["token_embed.weight"].shape[1])
-    else:
-        vocab = int(getattr(fallback_cfg, "vocab_size", 32000))
-        hidden = int(getattr(fallback_cfg, "hidden_size", 384))
-    try:
-        layers = max(int(k.split('.')[1]) for k in sd.keys() if k.startswith('layers.') and '.attn.' in k) + 1
-    except Exception:
-        layers = int(getattr(fallback_cfg, "n_layers", 8))
-    try:
-        max_len = int(sd.get("position_embed.weight").shape[0])
-    except Exception:
-        max_len = int(getattr(fallback_cfg, "max_len", 1024))
-    heads = int(getattr(fallback_cfg, "n_heads", _best_heads(hidden)))
-    if hidden % max(1, heads) != 0:
-        heads = _best_heads(hidden)
-    return ArdorConfig(
-        vocab_size=vocab,
-        hidden_size=hidden,
-        n_layers=layers,
-        n_heads=heads,
-        max_len=max_len,
-        dropout=float(getattr(fallback_cfg, "dropout", 0.1)),
-        attn_dropout=float(getattr(fallback_cfg, "attn_dropout", 0.1)),
-        resid_dropout=float(getattr(fallback_cfg, "resid_dropout", 0.1)),
-        ff_mult=int(getattr(fallback_cfg, "ff_mult", 4)),
-        layernorm_eps=float(getattr(fallback_cfg, "layernorm_eps", 1e-5)),
-        use_rope=bool(getattr(fallback_cfg, "use_rope", False)),
-        rope_theta=float(getattr(fallback_cfg, "rope_theta", 10000.0)),
-    )
-
-
-def _load_encoder_cached(encoder_ckpt: Optional[str], device: str, fallback_decoder_cfg: Optional[ArdorConfig] = None):
-    if not encoder_ckpt or not os.path.isfile(encoder_ckpt):
-        return None
-    raw = torch.load(encoder_ckpt, map_location=device)
-    meta = _read_checkpoint_meta(raw)
-
-    if isinstance(raw, torch.nn.Module):
-        return raw.to(device).eval()
-
-    sd = _resolve_state_dict_from_raw(raw)
-    enc = None
-    try:
-        arch = meta.get("arch") or meta.get("model")
-        if arch in ENCODER_REGISTRY:
-            cfg = ArdorConfig.from_dict(meta)
-            enc = ENCODER_REGISTRY[arch](cfg, use_cls_token=bool(meta.get("use_cls_token", True)))
-    except Exception:
-        enc = None
-
-    if enc is None:
-        cfg = _infer_encoder_dims_from_state(sd, fallback_decoder_cfg)
-        use_cls = bool(meta.get("use_cls_token", True)) if isinstance(meta, dict) else True
-        enc = ArdorEncoder(cfg, use_cls_token=use_cls)
-
-    remapped = _remap_to_model_schema(sd, set(enc.state_dict().keys()))
-    enc.load_state_dict(remapped, strict=False)
-    return enc.to(device).eval()
-
+# Legacy checkpoint/tokenizer/encoder internals removed from active ownership.
+# ArdorCore now delegates these responsibilities to loaders/* through backend factory wiring.
 
 # Redirected loader wrappers (backend extraction compatibility)
 def _load_tokenizer_matching_vocab(tokenizer_path: Optional[str], want_vocab: int, checkpoint_meta: Optional[dict] = None) -> Tuple[Tokenizer, str]:
@@ -1057,25 +450,33 @@ class ArdorCore:
                 self.log(prompt, final_out)
             return final_out
 
-        # === Retrieval (DISABLED by default) ===
-        # IMPORTANT: skip building hits_raw entirely when retrieval is off.
+        # === Retrieval via backend-owned retrieval subsystem ===
         orig_user_prompt = prompt
         use_retrieval = self.enable_retrieval if enable_retrieval is None else bool(enable_retrieval)
-
-        # (Memory reinjection stays DISABLED even if retrieval is enabled — reintroduce only after stability.)
-        # if use_retrieval and self.parietal is not None:
-        #     self.parietal.build_index(self.conversation_memory_last_N_chunks(48))
-        #     hits_raw = self.parietal.topk(orig_user_prompt, k=5)
-        #
-        #     # SAFE REINJECTION (future): inject in a separate channel with hard delimiters, only if relevant.
-        #     # filtered = ... (jaccard / relevance checks)
-        #     # if filtered:
-        #     #     prompt = (
-        #     #         orig_user_prompt
-        #     #         + "\n\n[MEMORY_CONTEXT_BEGIN]\n"
-        #     #         + "\n".join(f"- {t}" for t in filtered[:3])
-        #     #         + "\n[MEMORY_CONTEXT_END]\n"
-        #     #     )
+        if use_retrieval and self.retrieval_backend is not None:
+            mem_chunks = self.conversation_memory_last_N_chunks(48)
+            if mem_chunks:
+                try:
+                    self.retrieval_backend.build_index(mem_chunks)
+                    hits_raw = self.retrieval_backend.topk(orig_user_prompt, k=5)
+                except Exception:
+                    hits_raw = []
+                if hits_raw:
+                    filtered: List[str] = []
+                    for h in hits_raw:
+                        trace = str(h.get("trace", "")).strip()
+                        if not trace:
+                            continue
+                        rel = _jaccard(_keywords(orig_user_prompt, self.stopwords), _keywords(trace, self.stopwords))
+                        if rel >= 0.05:
+                            filtered.append(trace)
+                    if filtered:
+                        prompt = (
+                            orig_user_prompt
+                            + "\n\n[MEMORY_CONTEXT_BEGIN]\n"
+                            + "\n".join(f"- {t[:220]}" for t in filtered[:3])
+                            + "\n[MEMORY_CONTEXT_END]\n"
+                        )
 
         # === Persona / conversation scaffolding ===
         spec = {

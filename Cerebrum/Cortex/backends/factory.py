@@ -3,20 +3,46 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+import torch
+
 from backends.base import ModelBackend
 from backends.hf_causal_lm import HFCausalLMBackend
 from backends.native_ardor import NativeArdorBackend
 
 
 VALID_BACKENDS = {"native_ardor", "hf_causal_lm"}
+_NATIVE_FILE_EXTS = {".pt", ".pth", ".ckpt", ".bin"}
+
+
+def _looks_like_native_state_dict(p: Path) -> bool:
+    if not p.is_file():
+        return False
+    if p.suffix.lower() in _NATIVE_FILE_EXTS:
+        return True
+    try:
+        raw = torch.load(str(p), map_location="cpu", weights_only=False)
+    except TypeError:
+        raw = torch.load(str(p), map_location="cpu")
+    except Exception:
+        return False
+    if isinstance(raw, torch.nn.Module):
+        return True
+    if isinstance(raw, dict):
+        for k in ("state_dict", "model_state_dict", "module", "model"):
+            v = raw.get(k)
+            if isinstance(v, dict) and any(isinstance(t, torch.Tensor) for t in v.values()):
+                return True
+        if any(isinstance(t, torch.Tensor) for t in raw.values()):
+            return True
+    return False
 
 
 def _detect_backend_family(model_path: str) -> str:
     p = Path(model_path)
-    if p.is_file() and p.suffix.lower() == ".pt":
-        return "native_ardor"
     if p.is_dir() and (p / "config.json").exists():
         return "hf_causal_lm"
+    if _looks_like_native_state_dict(p):
+        return "native_ardor"
     raise ValueError(f"Ambiguous backend for model path: {model_path}")
 
 
