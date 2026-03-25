@@ -1,852 +1,927 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Run Card
+Goal: Train Ardor toward coherent, bounded, non-looping prompt-conditioned generation.
+Command:
+  python /workspace/Ardor/Cerebrum/Cortex/ardor_promptgen_trainer.py --stage lm_base
+  python /workspace/Ardor/Cerebrum/Cortex/ardor_promptgen_trainer.py --stage stabilize --resume /workspace/Ardor/runs/ardor_promptgen/checkpoints/ckpt_full_latest.pt
+  python /workspace/Ardor/Cerebrum/Cortex/ardor_promptgen_trainer.py --stage sft --sft_jsonl /workspace/Ardor/data/ardor_sft.jsonl --resume /workspace/Ardor/runs/ardor_promptgen/checkpoints/ckpt_full_latest.pt
+Inputs:
+  - tokens.bin/meta.json for base LM + stabilization
+  - optional held-out val tokens.bin/meta.json
+  - optional SFT jsonl with {prompt,response[,system]}
+Artifacts:
+  - run_dir/checkpoints/*.pt
+  - run_dir/metrics.jsonl
+  - run_dir/run_state.json
+Notes:
+  - Stage lm_base: standard CE + label smoothing on stream data
+  - Stage stabilize: CE + repeated n-gram unlikelihood on stream data
+  - Stage sft: masked assistant-only supervised finetuning on prompt/response pairs
+  - # TODO(OBSERVE): compare rep3/rep4, distinct-n, eos-rate, and raw generations at each stage
+"""
 from __future__ import annotations
-import argparse, os, sys, math, random, glob, time, re, hashlib
+
+import argparse
+import inspect
+import json
+import math
+import os
+import random
+import sys
+import time
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import List, Tuple, Dict, Optional, Iterable, Callable
-from torch.amp import GradScaler
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
-from tokenizers import Tokenizer
+
+# -------------------------
+# Environment
+# -------------------------
+os.environ.setdefault("PYTHONPATH", "/workspace/Ardor")
+os.environ.setdefault("OMP_NUM_THREADS", "8")
+os.environ.setdefault("MKL_NUM_THREADS", "8")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "8")
+os.environ.setdefault("KMP_AFFINITY", "granularity=fine,compact,1,0")
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True,max_split_size_mb:256,garbage_collection_threshold:0.9")
+os.environ.setdefault("TORCHINDUCTOR_CACHE_DIR", "/workspace/.inductor_cache")
+os.environ.setdefault("TRITON_CACHE_DIR", "/workspace/.triton_cache")
+os.environ.setdefault("CUDA_DEVICE_MAX_CONNECTIONS", "1")
+os.environ.setdefault("TORCHINDUCTOR_CUDAGRAPHS", "0")
+
+# -------------------------
+# Paths / defaults
+# -------------------------
+ARDOR_ROOT = Path("/workspace/Ardor")
+DEFAULT_TRAIN_BIN = Path("/workspace/Ardor/bin_dataset_20B/tokens.bin")
+DEFAULT_TRAIN_META = Path("/workspace/Ardor/bin_dataset_20B/meta.json")
+DEFAULT_VAL_BIN = Path("/workspace/Ardor/bin_dataset_heldout_25M/tokens.bin")
+DEFAULT_VAL_META = Path("/workspace/Ardor/bin_dataset_heldout_25M/meta.json")
+DEFAULT_TOKENIZER = Path("/workspace/Ardor/tokenizer_v9.json")
+DEFAULT_RUN_DIR = Path("/workspace/Ardor/runs/ardor_promptgen")
+
+# -------------------------
+# Utils
+# -------------------------
+def now_str() -> str:
+    return time.strftime("%Y-%m-%d %H:%M:%S")
 
 
-# --------------------------- IO utils ---------------------------
+def append_jsonl(path: Path, obj: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(obj, ensure_ascii=False) + "\n")
 
-def read_texts_from_glob(pattern: str, limit: int | None = None) -> List[str]:
-    paths = sorted(glob.glob(pattern, recursive=False))
-    out = []
-    for p in paths:
+
+def atomic_write_json(path: Path, obj: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        json.dump(obj, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    tmp.replace(path)
+
+
+def set_all_seeds(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+
+def safe_torch_save(obj: Any, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    torch.save(obj, tmp)
+    os.replace(tmp, path)
+
+
+def load_json(path: Path) -> Dict[str, Any]:
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def ensure_repo_on_path() -> None:
+    if str(ARDOR_ROOT) not in sys.path:
+        sys.path.insert(0, str(ARDOR_ROOT))
+
+
+def import_project_config() -> Any:
+    ensure_repo_on_path()
+    from Cerebrum.Cortex.ardor_config import ArdorConfig
+    return ArdorConfig
+
+
+def import_project_decoder() -> Any:
+    ensure_repo_on_path()
+    candidates = [
+        ("Cerebrum.Cortex.broca_decoder", "ArdorDecoder"),
+        ("Cerebrum.Cortex.broca_decoder", "BrocaDecoder"),
+        ("broca_decoder", "ArdorDecoder"),
+    ]
+    for mod_name, sym in candidates:
         try:
-            with open(p, 'r', encoding='utf-8') as f:
-                txt = f.read().strip()
-                if txt:
-                    out.append(txt)
+            mod = __import__(mod_name, fromlist=[sym])
+            return getattr(mod, sym)
         except Exception:
-            pass
-        if limit and len(out) >= limit:
-            break
-    random.shuffle(out)
-    return out
-
-
-# --------------------------- Token datasets ---------------------------
-
-class TokenChunkDataset(Dataset):
-    """Chunk raw texts to contiguous token blocks; returns (x,y) LongTensors."""
-
-    def __init__(self, texts: List[str], token_json: str, ctx_len: int = 1024):
-        self.tok = Tokenizer.from_file(token_json)
-        ids: List[int] = []
-        for t in texts:
-            seq = self.tok.encode(t).ids
-            if not seq:
-                continue
-            ids.extend(seq)
-        self.ctx_len = int(ctx_len)
-        self.blocks: List[Tuple[torch.Tensor, torch.Tensor]] = []
-        for i in range(0, max(0, len(ids) - 1), self.ctx_len):
-            chunk = ids[i:i + self.ctx_len + 1]
-            if len(chunk) >= 2:
-                x = torch.tensor(chunk[:-1], dtype=torch.long)
-                y = torch.tensor(chunk[1:], dtype=torch.long)
-                self.blocks.append((x, y))
-
-    def __len__(self):
-        return len(self.blocks)
-
-    def __getitem__(self, idx):
-        return self.blocks[idx]
-
-
-class TokenShardDataset(Dataset):
-    """Replay directly from .pt token shards that contain 1D/2D token tensors or common dict/list formats."""
-
-    def __init__(self, shard_paths: Iterable[Path], ctx_len: int = 1024):
-        self.blocks: List[Tuple[torch.Tensor, torch.Tensor]] = []
-        ctx_len = int(ctx_len)
-        for p in shard_paths:
-            try:
-                obj = torch.load(p, map_location="cpu")
-            except Exception:
-                continue
-            seqs: List[torch.Tensor] = []
-            if isinstance(obj, torch.Tensor):
-                if obj.ndim == 1:
-                    seqs = [obj.long()]
-                elif obj.ndim == 2:
-                    seqs = [row.long() for row in obj]
-            elif isinstance(obj, (list, tuple)):
-                for it in obj:
-                    if isinstance(it, torch.Tensor) and it.ndim == 1:
-                        seqs.append(it.long())
-                    elif isinstance(it, (list, tuple)) and it and isinstance(it[0], int):
-                        seqs.append(torch.tensor(it, dtype=torch.long))
-            elif isinstance(obj, dict):
-                for k in ("rows", "seqs", "sequences", "input_ids_list", "dataset", "input_ids"):
-                    if k in obj and isinstance(obj[k], (list, tuple)):
-                        for it in obj[k]:
-                            if isinstance(it, torch.Tensor) and it.ndim == 1:
-                                seqs.append(it.long())
-                            elif isinstance(it, (list, tuple)) and it and isinstance(it[0], int):
-                                seqs.append(torch.tensor(it, dtype=torch.long))
-            for ids in seqs:
-                ids = ids.view(-1)
-                if ids.numel() < 2:
-                    continue
-                for i in range(0, max(0, ids.numel() - 1), ctx_len):
-                    chunk = ids[i:i + ctx_len + 1]
-                    if chunk.numel() >= 2:
-                        self.blocks.append((chunk[:-1], chunk[1:]))
-        if not self.blocks:
-            raise RuntimeError("No valid token blocks found in .pt shards.")
-
-    def __len__(self):
-        return len(self.blocks)
-
-    def __getitem__(self, i):
-        x, y = self.blocks[i]
-        return x.clone(), y.clone()
-
-
-# --------------------------- Collate ---------------------------
-
-def make_pad_collate(pad_id: int | None, ignore_idx: int) -> Callable:
-    pad_token = 0 if pad_id is None else int(pad_id)
-
-    def collate(batch):
-        max_len = max(x.size(0) for x, _ in batch)
-        B = len(batch)
-        X = torch.full((B, max_len), pad_token, dtype=torch.long)
-        Y = torch.full((B, max_len), ignore_idx, dtype=torch.long)
-        for i, (x, y) in enumerate(batch):
-            n = x.size(0)
-            X[i, :n] = x
-            Y[i, :n] = y
-        return X, Y
-
-    return collate
-
-
-# --------------------------- Regularizers & UL ---------------------------
-
-def l2sp_loss(model: nn.Module, ref_state: Dict[str, torch.Tensor], strength: float = 1e-3,
-              exclude_norm_bias: bool = True) -> torch.Tensor:
-    device = next(model.parameters()).device
-    loss = torch.tensor(0.0, device=device)
-    for n, p in model.named_parameters():
-        if (not p.requires_grad) or (n not in ref_state):
             continue
-        r = ref_state[n].to(device)
-        if p.shape != r.shape:
-            continue
-        if exclude_norm_bias and p.dim() == 1 and ("norm" in n.lower() or n.endswith("bias")):
-            continue
-        loss = loss + strength * torch.mean((p - r) ** 2)
-    return loss
+    raise SystemExit("Could not import ArdorDecoder from project broca_decoder.py")
 
 
-def build_ban_ids(tok: Tokenizer, ban_strings: str) -> Optional[torch.Tensor]:
-    ban_set = set()
-    if not ban_strings:
-        return None
-    parts = [s.strip() for s in ban_strings.split(';') if s.strip()]
-    for s in parts:
-        ids = tok.encode(s).ids
-        for tid in ids:
-            ban_set.add(int(tid))
-    if not ban_set:
-        return None
-    return torch.tensor(sorted(ban_set), dtype=torch.long)
-
-
-def unlikelihood_loss_masked(
-        logits: torch.Tensor, targets: torch.Tensor, ban_ids: Optional[torch.Tensor], ignore_idx: int
-) -> torch.Tensor:
-    """UL with masking: ignore `ignore_idx`; and never punish if the gold token itself is banned."""
-    if ban_ids is None or ban_ids.numel() == 0:
-        return logits.new_tensor(0.0)
-
-    device = logits.device
-    B, T, V = logits.shape
-
-    ban_ids = ban_ids.to(device)
-    ban_ids = ban_ids[(ban_ids >= 0) & (ban_ids < V)]
-    if ban_ids.numel() == 0:
-        return logits.new_tensor(0.0)
-
-    non_ignored = (targets != ignore_idx)
-    gold_is_banned = torch.isin(targets.clamp(min=0), ban_ids)
-    mask = (non_ignored & (~gold_is_banned)).float()  # [B,T]
-    if mask.sum() == 0:
-        return logits.new_tensor(0.0)
-
-    K = ban_ids.numel()
-    gather_idx = ban_ids.view(1, 1, K).expand(B, T, K)  # [B,T,K]
-    logp = logits - torch.logsumexp(logits, dim=-1, keepdim=True)
-    p_bad = torch.exp(torch.gather(logp, dim=-1, index=gather_idx))  # [B,T,K]
-
-    ul_tok = -torch.log(torch.clamp(1.0 - p_bad, min=1e-6))
-    ul_tok = ul_tok * mask.unsqueeze(-1)
-    denom = mask.sum().clamp_min(1.0) * K
-    return ul_tok.sum() / denom
-
-
-# --------------------------- Eval helpers ---------------------------
-
-@torch.no_grad()
-def student_token_nll(student: nn.Module, tok_json: str, texts: List[str], device: str = 'cuda',
-                      cap: Optional[int] = None, max_len: int = 1024) -> List[Tuple[float, str]]:
-    T = Tokenizer.from_file(tok_json)
-    student.eval()
-    out = []
-    it = texts if cap is None else texts[:cap]
-    for t in it:
-        ids = T.encode(t).ids
-        if not ids or len(ids) < 4:
-            continue
-        ids = ids[:max_len]
-        inp = torch.tensor(ids[:-1], dtype=torch.long).unsqueeze(0).to(device)
-        tgt = torch.tensor(ids[1:], dtype=torch.long).unsqueeze(0).to(device)
-        logits = student(inp)
-        loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), tgt.reshape(-1), reduction='mean')
-        out.append((loss.item(), t))
-    return sorted(out, key=lambda x: x[0], reverse=True)
-
-
-# --------------------------- Dream generator ---------------------------
-
-@torch.no_grad()
-def generate_dreams(teacher, teacher_tok, seeds: List[str], max_new=240, temp=0.7, top_p=0.9, rep_pen=1.1,
-                    device='cuda') -> List[str]:
-    dreams = []
-    for s in seeds:
-        prompt = f"Paraphrase and extend with rigorous reasoning, preserving the philosophical stance.\n\n{s}\n\nAnswer:"
-        ids = teacher_tok(prompt, return_tensors='pt').to(device)
-        out = teacher.generate(
-            **ids, max_new_tokens=max_new, do_sample=True, temperature=temp, top_p=top_p,
-            repetition_penalty=rep_pen, pad_token_id=teacher_tok.eos_token_id
-        )
-        gen = teacher_tok.decode(out[0], skip_special_tokens=True)
-        dreams.append(gen)
-    return dreams
-
-
-# --------------------------- Contrastive ranking ---------------------------
-
-def continuation_score(logits: torch.Tensor, targets: torch.Tensor, ignore_idx: int) -> torch.Tensor:
-    """Average log-prob per token for each sample in batch; safe for ignored positions."""
-    logp = logits.log_softmax(dim=-1)  # [B,T,V]
-    V = logits.size(-1)
-    mask = (targets != ignore_idx)  # [B,T]
-    safe_idx = torch.where(mask, targets, torch.zeros_like(targets)).clamp_(0, V - 1)
-    tok_lp = torch.gather(logp, dim=-1, index=safe_idx.unsqueeze(-1)).squeeze(-1)  # [B,T]
-    denom = mask.sum(dim=1).clamp_min(1)
-    return (tok_lp * mask).sum(dim=1) / denom
-
-
-def inbatch_ranking_loss(logits: torch.Tensor, targets: torch.Tensor, margin: float, ignore_idx: int) -> torch.Tensor:
-    if logits.size(0) < 2:
-        return logits.new_tensor(0.0)
-    pos = continuation_score(logits, targets, ignore_idx)
-    neg_t = torch.roll(targets, shifts=1, dims=0)
-    neg = continuation_score(logits, neg_t, ignore_idx)
-    return (margin - pos + neg).clamp_min(0.0).mean()
-
-
-# --------------------------- Resume helpers ---------------------------
-
-def find_latest_epoch_ckpt(out_dir: Path) -> tuple[Optional[Path], int]:
-    latest_path, latest_num = None, 0
-    for p in out_dir.glob("epoch_*.pt"):
-        m = re.search(r"epoch_(\d+)", p.stem)
-        if m:
-            n = int(m.group(1))
-            if n > latest_num:
-                latest_num = n
-                latest_path = p
-    return latest_path, latest_num  # num corresponds to finished epoch count
-
-
-
-# scratch initialization only
-SCRATCH_DEFAULTS = {
-    'hidden_size': 768,
-    'n_layers': 12,
-    'n_heads': 12,
-    'max_len': 1024,
-    'dropout': 0.15,
-    'attn_dropout': 0.15,
-    'resid_dropout': 0.15,
-}
-
-
-def _infer_base_cfg_from_state(base_sd: dict, base_meta: dict, tok: Tokenizer) -> "ArdorConfig":
-    from ardor_config import ArdorConfig
-    if 'token_embed.weight' in base_sd:
-        vocab = int(base_sd['token_embed.weight'].shape[0])
-        hidden = int(base_sd['token_embed.weight'].shape[1])
-    else:
-        vocab = int(base_meta.get('vocab_size') or tok.get_vocab_size())
-        hidden = int(base_meta.get('hidden_size') or base_meta.get('hidden') or SCRATCH_DEFAULTS['hidden_size'])
+def build_model(dec_cls: Any, proj_cfg: Any) -> nn.Module:
+    sig = inspect.signature(dec_cls.__init__)
+    params = set(sig.parameters.keys())
+    if "cfg" in params:
+        return dec_cls(cfg=proj_cfg)
+    if "config" in params:
+        return dec_cls(config=proj_cfg)
     try:
-        inferred_layers = max(int(k.split('.')[1]) for k in base_sd.keys() if k.startswith('blocks.') and '.attn.q.' in k) + 1
-    except Exception:
-        inferred_layers = None
-    layers = int(base_meta.get('n_layers') or base_meta.get('layers') or inferred_layers or SCRATCH_DEFAULTS['n_layers'])
-    inferred_heads = None
-    if hidden % 12 == 0:
-        inferred_heads = 12
-    elif hidden % 8 == 0:
-        inferred_heads = 8
-    heads = int(base_meta.get('n_heads') or base_meta.get('heads') or inferred_heads or SCRATCH_DEFAULTS['n_heads'])
-    max_len = int(base_meta.get('max_len') or SCRATCH_DEFAULTS['max_len'])
-    return ArdorConfig(
-        vocab_size=vocab,
-        hidden_size=hidden,
-        n_layers=layers,
-        n_heads=heads,
-        max_len=max_len,
-        dropout=float(base_meta.get('dropout') or SCRATCH_DEFAULTS['dropout']),
-        attn_dropout=float(base_meta.get('attn_dropout') or base_meta.get('dropout') or SCRATCH_DEFAULTS['attn_dropout']),
-        resid_dropout=float(base_meta.get('resid_dropout') or base_meta.get('dropout') or SCRATCH_DEFAULTS['resid_dropout']),
+        return dec_cls(proj_cfg)
+    except TypeError:
+        pass
+    kwargs = {}
+    for k in (
+        "vocab_size", "hidden_size", "n_layers", "n_heads", "ff_mult", "max_len",
+        "dropout", "attn_dropout", "resid_dropout", "use_rope", "rope_theta",
+        "hidden", "layers", "heads",
+    ):
+        if k in params:
+            if hasattr(proj_cfg, k):
+                kwargs[k] = getattr(proj_cfg, k)
+            elif k == "hidden" and hasattr(proj_cfg, "hidden_size"):
+                kwargs[k] = proj_cfg.hidden_size
+            elif k == "layers" and hasattr(proj_cfg, "n_layers"):
+                kwargs[k] = proj_cfg.n_layers
+            elif k == "heads" and hasattr(proj_cfg, "n_heads"):
+                kwargs[k] = proj_cfg.n_heads
+    if kwargs:
+        return dec_cls(**kwargs)
+    raise SystemExit(f"Unsupported decoder constructor signature: {sig}")
+
+# -------------------------
+# Tokenizer helpers
+# -------------------------
+def tokenizer_vocab_size(tokenizer_json: Path) -> int:
+    tok = load_json(tokenizer_json)
+    return int(len(tok["model"]["vocab"]))
+
+
+def tokenizer_special_ids(tokenizer_json: Path) -> Dict[str, Optional[int]]:
+    tok = load_json(tokenizer_json)
+    vocab = tok["model"]["vocab"]
+    return {
+        "pad_id": vocab.get("<pad>"),
+        "unk_id": vocab.get("<unk>"),
+        "bos_id": vocab.get("<bos>"),
+        "eos_id": vocab.get("<eos>"),
+        "user_id": vocab.get("<|user|>"),
+        "assistant_id": vocab.get("<|assistant|>"),
+        "system_id": vocab.get("<|system|>"),
+        "eot_id": vocab.get("<|eot|>"),
+    }
+
+
+def build_simple_tokenizer(tokenizer_json: Path):
+    from tokenizers import Tokenizer
+    return Tokenizer.from_file(str(tokenizer_json))
+
+# -------------------------
+# Data
+# -------------------------
+class TokenStream:
+    def __init__(self, tokens_bin: Path):
+        self.tokens_mm = np.memmap(tokens_bin, dtype=np.uint16, mode="r")
+        self.N = int(self.tokens_mm.shape[0])
+
+    def slice(self, start: int, length: int) -> np.ndarray:
+        start = int(start) % self.N
+        end = start + int(length)
+        if end <= self.N:
+            return np.asarray(self.tokens_mm[start:end], dtype=np.uint16)
+        n1 = self.N - start
+        part1 = np.asarray(self.tokens_mm[start:self.N], dtype=np.uint16)
+        part2 = np.asarray(self.tokens_mm[0:end - self.N], dtype=np.uint16)
+        return np.concatenate([part1, part2], axis=0)
+
+
+class StreamBatcher:
+    def __init__(self, stream: TokenStream, batch_size: int, seq_len: int, seed: int, random_starts: bool = True):
+        self.stream = stream
+        self.batch_size = int(batch_size)
+        self.seq_len = int(seq_len)
+        self.random_starts = bool(random_starts)
+        self.rng = np.random.default_rng(seed)
+        self.cursor = int(self.rng.integers(0, max(1, stream.N - 1)))
+        self.chunk = self.batch_size * (self.seq_len + 1)
+
+    def next_batch(self) -> Tuple[torch.Tensor, torch.Tensor, int]:
+        if self.random_starts:
+            start = int(self.rng.integers(0, max(1, self.stream.N - self.chunk - 1)))
+        else:
+            start = self.cursor
+            self.cursor = (self.cursor + self.chunk) % self.stream.N
+        flat = self.stream.slice(start, self.chunk).astype(np.int64, copy=False)
+        arr = flat.reshape(self.batch_size, self.seq_len + 1)
+        x = torch.from_numpy(arr[:, :-1].copy())
+        y = torch.from_numpy(arr[:, 1:].copy())
+        return x, y, start
+
+
+class SFTExampleDataset(Dataset):
+    def __init__(self, path: Path, tokenizer_json: Path, seq_len: int):
+        self.path = path
+        self.seq_len = int(seq_len)
+        self.tok = build_simple_tokenizer(tokenizer_json)
+        self.sp = tokenizer_special_ids(tokenizer_json)
+        self.examples = self._load_examples()
+
+    def _enc_plain(self, text: str) -> List[int]:
+        return list(self.tok.encode(text).ids)
+
+    def _enc_no_special(self, text: str) -> List[int]:
+        ids = self._enc_plain(text)
+        bos = self.sp["bos_id"]
+        eos = self.sp["eos_id"]
+        if bos is not None and ids and ids[0] == bos:
+            ids = ids[1:]
+        if eos is not None and ids and ids[-1] == eos:
+            ids = ids[:-1]
+        return ids
+
+    def _pack_one(self, obj: Dict[str, Any]) -> Tuple[List[int], List[int]]:
+        user_id = self.sp["user_id"]
+        assistant_id = self.sp["assistant_id"]
+        system_id = self.sp["system_id"]
+        eot_id = self.sp["eot_id"]
+        bos_id = self.sp["bos_id"]
+        eos_id = self.sp["eos_id"]
+        if user_id is None or assistant_id is None:
+            raise ValueError("Tokenizer missing <|user|> or <|assistant|> special ids needed for SFT.")
+
+        prompt = str(obj.get("prompt", ""))
+        response = str(obj.get("response", ""))
+        system = str(obj.get("system", "")).strip()
+
+        ids: List[int] = []
+        labels: List[int] = []
+        if bos_id is not None:
+            ids.append(bos_id)
+            labels.append(-100)
+        if system:
+            ids.append(system_id if system_id is not None else user_id)
+            labels.append(-100)
+            sys_ids = self._enc_no_special(system)
+            ids.extend(sys_ids)
+            labels.extend([-100] * len(sys_ids))
+            if eot_id is not None:
+                ids.append(eot_id)
+                labels.append(-100)
+        ids.append(user_id)
+        labels.append(-100)
+        p_ids = self._enc_no_special(prompt)
+        ids.extend(p_ids)
+        labels.extend([-100] * len(p_ids))
+        if eot_id is not None:
+            ids.append(eot_id)
+            labels.append(-100)
+        ids.append(assistant_id)
+        labels.append(-100)
+        r_ids = self._enc_no_special(response)
+        ids.extend(r_ids)
+        labels.extend(r_ids)
+        if eot_id is not None:
+            ids.append(eot_id)
+            labels.append(eot_id)
+        elif eos_id is not None:
+            ids.append(eos_id)
+            labels.append(eos_id)
+
+        ids = ids[:self.seq_len + 1]
+        labels = labels[:self.seq_len + 1]
+        if len(ids) < 2:
+            raise ValueError("Degenerate SFT example after packing.")
+        return ids, labels
+
+    def _load_examples(self) -> List[Tuple[np.ndarray, np.ndarray]]:
+        out = []
+        with self.path.open("r", encoding="utf-8") as f:
+            for line_no, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                obj = json.loads(line)
+                ids, labels = self._pack_one(obj)
+                x = np.full((self.seq_len,), fill_value=self.sp["pad_id"] or 0, dtype=np.int64)
+                y = np.full((self.seq_len,), fill_value=-100, dtype=np.int64)
+                xin = ids[:-1]
+                yin = labels[1:]
+                L = min(self.seq_len, len(xin))
+                x[:L] = np.asarray(xin[:L], dtype=np.int64)
+                y[:L] = np.asarray(yin[:L], dtype=np.int64)
+                out.append((x, y))
+        if not out:
+            raise SystemExit(f"No usable SFT examples found in {self.path}")
+        return out
+
+    def __len__(self) -> int:
+        return len(self.examples)
+
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        x, y = self.examples[idx]
+        return torch.from_numpy(x.copy()), torch.from_numpy(y.copy())
+
+# -------------------------
+# Losses / eval
+# -------------------------
+def masked_ce_loss(logits: torch.Tensor, targets: torch.Tensor, label_smoothing: float = 0.0) -> torch.Tensor:
+    return F.cross_entropy(
+        logits.reshape(-1, logits.size(-1)),
+        targets.reshape(-1),
+        ignore_index=-100,
+        label_smoothing=label_smoothing,
     )
 
 
+def ce_loss(logits: torch.Tensor, targets: torch.Tensor, label_smoothing: float = 0.0) -> torch.Tensor:
+    return F.cross_entropy(
+        logits.reshape(-1, logits.size(-1)),
+        targets.reshape(-1),
+        label_smoothing=label_smoothing,
+    )
 
 
-def _resolve_tokenizer_path(base: Path, tokenizer_arg: str) -> Path:
-    candidate = Path(tokenizer_arg)
-    if not candidate.is_absolute():
-        candidate = (base / candidate).resolve()
-    if candidate.exists():
-        return candidate
-    roots = [
-        base / 'Cerebrum' / 'ProjectTokenizer' / 'ardor_tokenizer',
-        base / 'ProjectTokenizer' / 'ardor_tokenizer',
-    ]
-    for root in roots:
-        if not root.is_dir():
+def repeated_ngram_unlikelihood_loss(logits: torch.Tensor, targets: torch.Tensor, ngram: int = 4, tail: int = 256) -> torch.Tensor:
+    """
+    Penalize assigning high probability to target tokens that would complete a repeated n-gram.
+    This is a lightweight training-time anti-loop term, not a full sequence-level objective.
+    """
+    B, T, V = logits.shape
+    if T < ngram or ngram < 2:
+        return logits.new_zeros(())
+    start_t = max(ngram - 1, T - tail)
+    log_probs = F.log_softmax(logits, dim=-1)
+    losses: List[torch.Tensor] = []
+    for b in range(B):
+        y = targets[b]
+        for t in range(start_t, T):
+            prefix = y[max(0, t - ngram + 1):t]
+            if prefix.numel() != ngram - 1:
+                continue
+            cand = y[t]
+            if cand.item() < 0:
+                continue
+            repeated = False
+            for j in range(0, t - ngram + 1):
+                prev = y[j:j + ngram - 1]
+                if prev.numel() != ngram - 1:
+                    continue
+                if torch.equal(prev, prefix) and y[j + ngram - 1].item() == cand.item():
+                    repeated = True
+                    break
+            if repeated:
+                p = log_probs[b, t, cand].exp().clamp(max=1 - 1e-6)
+                losses.append(-torch.log1p(-p))
+    if not losses:
+        return logits.new_zeros(())
+    return torch.stack(losses).mean()
+
+
+@torch.no_grad()
+def sample_generate(model: nn.Module, prompt_ids: Sequence[int], max_new_tokens: int, eos_id: Optional[int], top_p: float = 0.9, temperature: float = 0.9) -> List[int]:
+    device = next(model.parameters()).device
+    ids = torch.tensor([list(prompt_ids)], dtype=torch.long, device=device)
+    model.eval()
+    for _ in range(max_new_tokens):
+        logits = model(ids[:, -2048:])[:, -1, :]
+        if temperature <= 0:
+            next_id = torch.argmax(logits, dim=-1, keepdim=True)
+        else:
+            logits = logits / temperature
+            probs = torch.softmax(logits, dim=-1)
+            sorted_probs, sorted_idx = torch.sort(probs, descending=True)
+            cdf = torch.cumsum(sorted_probs, dim=-1)
+            mask = cdf > top_p
+            mask[..., 1:] = mask[..., :-1].clone()
+            mask[..., 0] = False
+            sorted_probs[mask] = 0.0
+            sorted_probs = sorted_probs / sorted_probs.sum(dim=-1, keepdim=True)
+            next_local = torch.multinomial(sorted_probs, num_samples=1)
+            next_id = sorted_idx.gather(-1, next_local)
+        ids = torch.cat([ids, next_id], dim=1)
+        if eos_id is not None and int(next_id.item()) == int(eos_id):
+            break
+    return ids[0].tolist()
+
+
+def repetition_metrics(ids: Sequence[int]) -> Dict[str, float]:
+    arr = list(ids)
+    out: Dict[str, float] = {}
+    for n in (2, 3, 4):
+        if len(arr) < n:
+            out[f"rep{n}"] = 0.0
+            out[f"distinct{n}"] = 1.0
             continue
-        for patt in ('tokenizer.json', 'tokenizer*.json'):
-            matches = sorted(root.glob(patt), key=lambda p: p.stat().st_mtime, reverse=True)
-            if matches:
-                return matches[0].resolve()
-    return candidate
+        ngrams = [tuple(arr[i:i+n]) for i in range(len(arr) - n + 1)]
+        uniq = len(set(ngrams))
+        total = len(ngrams)
+        out[f"distinct{n}"] = float(uniq / max(1, total))
+        out[f"rep{n}"] = float(1.0 - (uniq / max(1, total)))
+    return out
 
-# --------------------------- Main ---------------------------
 
-def main():
+@torch.no_grad()
+def eval_stream_loss(model: nn.Module, batcher: StreamBatcher, steps: int, device: torch.device, label_smoothing: float) -> float:
+    model.eval()
+    losses: List[float] = []
+    for _ in range(steps):
+        x, y, _ = batcher.next_batch()
+        x = x.to(device, non_blocking=True)
+        y = y.to(device, non_blocking=True)
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            logits = model(x)
+            loss = ce_loss(logits, y, label_smoothing=label_smoothing)
+        losses.append(float(loss.item()))
+    model.train()
+    return float(np.mean(losses)) if losses else float("nan")
+
+
+@torch.no_grad()
+def eval_sft_loss(model: nn.Module, loader: DataLoader, device: torch.device, label_smoothing: float, max_batches: int = 32) -> float:
+    model.eval()
+    losses: List[float] = []
+    for i, (x, y) in enumerate(loader):
+        if i >= max_batches:
+            break
+        x = x.to(device, non_blocking=True)
+        y = y.to(device, non_blocking=True)
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            logits = model(x)
+            loss = masked_ce_loss(logits, y, label_smoothing=label_smoothing)
+        losses.append(float(loss.item()))
+    model.train()
+    return float(np.mean(losses)) if losses else float("nan")
+
+# -------------------------
+# Config
+# -------------------------
+@dataclass
+class StageConfig:
+    name: str
+    max_train_tokens: int
+    lr: float
+    weight_decay: float
+    dropout: float
+    label_smoothing: float
+    ul_weight: float
+    ul_ngram: int
+    ul_tail: int
+    batch_size: int
+    target_tokens_per_opt_step: int
+    max_grad_accum: int
+    grad_clip: float
+    warmup_fraction: float
+    log_every: int
+    eval_every: int
+    gen_eval_every: int
+    save_every: int
+    random_starts: bool
+
+
+STAGE_PRESETS: Dict[str, StageConfig] = {
+    "lm_base": StageConfig(
+        name="lm_base",
+        max_train_tokens=3_000_000_000,
+        lr=3.0e-5,
+        weight_decay=0.03,
+        dropout=0.10,
+        label_smoothing=0.02,
+        ul_weight=0.00,
+        ul_ngram=4,
+        ul_tail=256,
+        batch_size=8,
+        target_tokens_per_opt_step=65_536,
+        max_grad_accum=8,
+        grad_clip=0.5,
+        warmup_fraction=0.03,
+        log_every=50,
+        eval_every=250,
+        gen_eval_every=500,
+        save_every=250,
+        random_starts=True,
+    ),
+    "stabilize": StageConfig(
+        name="stabilize",
+        max_train_tokens=3_600_000_000,
+        lr=2.0e-5,
+        weight_decay=0.02,
+        dropout=0.10,
+        label_smoothing=0.03,
+        ul_weight=0.15,
+        ul_ngram=4,
+        ul_tail=256,
+        batch_size=8,
+        target_tokens_per_opt_step=65_536,
+        max_grad_accum=8,
+        grad_clip=0.5,
+        warmup_fraction=0.02,
+        log_every=50,
+        eval_every=250,
+        gen_eval_every=250,
+        save_every=250,
+        random_starts=True,
+    ),
+    "sft": StageConfig(
+        name="sft",
+        max_train_tokens=250_000_000,
+        lr=1.0e-5,
+        weight_decay=0.01,
+        dropout=0.10,
+        label_smoothing=0.02,
+        ul_weight=0.05,
+        ul_ngram=4,
+        ul_tail=128,
+        batch_size=8,
+        target_tokens_per_opt_step=32_768,
+        max_grad_accum=8,
+        grad_clip=0.5,
+        warmup_fraction=0.05,
+        log_every=20,
+        eval_every=100,
+        gen_eval_every=100,
+        save_every=100,
+        random_starts=False,
+    ),
+}
+
+
+class WarmupCosine:
+    def __init__(self, base_lr: float, warmup_steps: int, total_steps: int):
+        self.base_lr = float(base_lr)
+        self.warmup_steps = int(max(1, warmup_steps))
+        self.total_steps = int(max(self.warmup_steps + 1, total_steps))
+
+    def lr_at(self, step: int) -> float:
+        s = int(step)
+        if s < self.warmup_steps:
+            return self.base_lr * (s + 1) / self.warmup_steps
+        t = (s - self.warmup_steps) / max(1, self.total_steps - self.warmup_steps)
+        t = min(max(t, 0.0), 1.0)
+        return 0.5 * self.base_lr * (1.0 + math.cos(math.pi * t))
+
+# -------------------------
+# Args
+# -------------------------
+def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser()
-    # Hard-coded defaults (overrideable)
-    repo_root = Path(__file__).resolve().parents[2]
-    ap.add_argument('--base', default=str(repo_root))
-    ap.add_argument('--student_ckpt', default='artifacts/models/Ardor_Orion.pt')
-    ap.add_argument('--student_tokenizer', default=os.environ.get('ARDOR_TOKENIZER', 'Cerebrum/ProjectTokenizer/ardor_tokenizer/tokenizer.json'))
-    ap.add_argument('--philo_glob', default='data/Philosophy/*.txt')
-    ap.add_argument('--dialog_glob', default='data/Conversations/*.txt')
-    ap.add_argument('--heldout', default='data/Philosophy_Heldout/*.txt')
-    ap.add_argument('--teacher_id', default='mistralai/Mistral-7B-v0.1')
-    ap.add_argument('--teacher_adapter_dir', default='runs/mistral_pipeline/20250831_210439/phase1_finetune')
-    ap.add_argument('--out_dir', default='artifacts/models/rem_omega')
-    ap.add_argument('--out_name', default='Ardor_Orion_REM.pt')
+    ap.add_argument("--stage", choices=["lm_base", "stabilize", "sft"], required=True)
+    ap.add_argument("--resume", type=Path, default=None)
+    ap.add_argument("--train_tokens", type=Path, default=DEFAULT_TRAIN_BIN)
+    ap.add_argument("--train_meta", type=Path, default=DEFAULT_TRAIN_META)
+    ap.add_argument("--val_tokens", type=Path, default=DEFAULT_VAL_BIN)
+    ap.add_argument("--val_meta", type=Path, default=DEFAULT_VAL_META)
+    ap.add_argument("--sft_jsonl", type=Path, default=None)
+    ap.add_argument("--tokenizer", type=Path, default=DEFAULT_TOKENIZER)
+    ap.add_argument("--run_dir", type=Path, default=DEFAULT_RUN_DIR)
+    ap.add_argument("--hidden_size", type=int, default=1536)
+    ap.add_argument("--n_layers", type=int, default=33)
+    ap.add_argument("--n_heads", type=int, default=24)
+    ap.add_argument("--ff_mult", type=int, default=4)
+    ap.add_argument("--ctx", type=int, default=2048)
+    ap.add_argument("--use_compile", action="store_true")
+    ap.add_argument("--seed", type=int, default=1337)
+    ap.add_argument("--gen_probe_prompts", type=Path, default=None)
+    return ap.parse_args()
 
-    # REM params
-    ap.add_argument('--rem_epochs', type=int, default=2)
-    ap.add_argument('--rem_lr', type=float, default=1.2e-4)
-    ap.add_argument('--rem_batch', type=int, default=8)
-    ap.add_argument('--grad_acc', type=int, default=2)
-    ap.add_argument('--rem_dropout_max', type=float, default=0.2)
-    ap.add_argument('--rem_dropout_min', type=float, default=0.05)
-    ap.add_argument('--max_steps_per_epoch', type=int, default=0, help='Optional cap on steps per epoch (0 = no cap).')
 
-    # Loss knobs
-    ap.add_argument('--l2sp_lambda', type=float, default=5e-4)
-    ap.add_argument('--l2sp_exclude_norm_bias', action='store_true')
-    ap.add_argument('--ul_weight', type=float, default=0.2)
-    ap.add_argument('--ban_strings', type=str,
-                    default='PROJECT GUTENBERG;EBOOK;PUBLIC DOMAIN;***START OF;User:;Assistant:')
-    ap.add_argument('--rank_lambda', type=float, default=0.05)
-    ap.add_argument('--rank_margin', type=float, default=0.1)
-
-    # Dreams
-    ap.add_argument('--dream_hard_cap', type=int, default=64)
-    ap.add_argument('--dream_rand_cap', type=int, default=64)
-    ap.add_argument('--dream_max_new', type=int, default=240)
-    ap.add_argument('--dream_temp', type=float, default=0.7)
-    ap.add_argument('--dream_top_p', type=float, default=0.9)
-    ap.add_argument('--dream_rep_pen', type=float, default=1.1)
-    ap.add_argument('--dream_every', type=int, default=2)
-    ap.add_argument('--dream_ce_lambda', type=float, default=0.4)
-    ap.add_argument('--dialog_ratio', type=float, default=0.5, help='Fraction of random seeds drawn from dialogues.')
-
-    # Averaging
-    ap.add_argument('--swa', action='store_true', default=True)
-    ap.add_argument('--swa_start_frac', type=float, default=0.5)
-
-    # Resume controls
-    ap.add_argument('--resume_from', type=str, default='', help='Path to a student epoch_XX.pt to resume from.')
-    ap.add_argument('--resume_swa_from', type=str, default='', help='Path to an SWA snapshot to seed SWA from.')
-    ap.add_argument('--no_auto_resume', action='store_true', help='Disable auto-resume discovery in out_dir.')
-
-    ap.add_argument('--seed', type=int, default=1337)
-    ap.add_argument('--cuda_device', type=int, default=0)
-    args = ap.parse_args()
-
-    # ---- Repro + CUDA-friendly defaults ----
-    random.seed(args.seed);
-    torch.manual_seed(args.seed);
-    torch.cuda.manual_seed_all(args.seed)
-    os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.set_float32_matmul_precision('high')
-    torch.backends.cudnn.benchmark = True
-
-    base = Path(args.base).resolve()
-    out_dir = (base / args.out_dir).resolve();
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / args.out_name
-
-    # tokenizer
-    tok_path = _resolve_tokenizer_path(base, args.student_tokenizer)
-    if not tok_path.exists():
-        raise FileNotFoundError(f"Tokenizer not found: {tok_path}")
-    tok = Tokenizer.from_file(str(tok_path))
-
-    # robust PAD id lookup (avoid treating 0 as falsy)
-    def _first_id(names: List[str]) -> Optional[int]:
-        for n in names:
-            i = tok.token_to_id(n)
-            if i is not None:
-                return int(i)
-        return None
-
-    PAD_ID = _first_id(['<pad>', '<PAD>', '[PAD]'])
-    IGNORE_IDX = PAD_ID if PAD_ID is not None else -100
-
-    device = torch.device(f'cuda:{args.cuda_device}' if torch.cuda.is_available() else 'cpu')
-    amp_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-    use_scaler = (amp_dtype == torch.float16)
-    scaler = GradScaler('cuda', enabled=use_scaler)
-
-    # Load student (base)
-    sys.path.append(str(base))
-    sys.path.append(str((base / "Cerebrum" / "Cortex").resolve()))
-    from broca_decoder import ArdorDecoder
-    from ardor_config import ArdorConfig
-    base_raw = torch.load((base / args.student_ckpt).resolve(), map_location='cpu')
-
-    if isinstance(base_raw, dict):
-        base_sd = base_raw.get('state_dict') or base_raw.get('model') or base_raw
-        base_meta = dict(base_raw.get('config') or base_raw.get('meta') or {})
-    else:
-        base_sd = base_raw
-        base_meta = {}
-
-    if not isinstance(base_sd, dict):
-        raise RuntimeError('Unsupported base checkpoint format for student initialization')
-
-    cfg = _infer_base_cfg_from_state(base_sd, base_meta, tok)
-    student = ArdorDecoder(cfg).to(device)
-    student.load_state_dict(base_sd, strict=False)
-
-    # Reference state for L2-SP (anchor = base checkpoint)
-    ref_state = {k: v.clone().detach() for k, v in base_sd.items()}
-
-    # ---- Data: philosophy + dialogues ----
-    philo_texts = read_texts_from_glob(str(base / args.philo_glob))
-    dialog_texts = read_texts_from_glob(str(base / args.dialog_glob)) if args.dialog_glob else []
-    texts_all = (philo_texts or []) + (dialog_texts or [])
-
-    collate_fn = make_pad_collate(PAD_ID, IGNORE_IDX)
-    if texts_all:
-        real_ds = TokenChunkDataset(texts_all, str(tok_path), ctx_len=1024)
-        if len(real_ds) == 0:
-            print('[warn] Texts found but produced 0 blocks after tokenization; will try .pt shards.')
-            real_loader = None
+def maybe_strip_compile_prefix(sd: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    out = {}
+    for k, v in sd.items():
+        if k.startswith("_orig_mod."):
+            out[k[len("_orig_mod."):]] = v
         else:
-            real_loader = DataLoader(
-                real_ds, batch_size=args.rem_batch, shuffle=True, drop_last=True,
-                collate_fn=collate_fn, pin_memory=True, persistent_workers=False
-            )
-    else:
-        real_loader = None
+            out[k] = v
+    return out
 
-    if real_loader is None:
-        # fallback: try philosophy and conversation shard dirs
-        shard_paths = []
-        for d in [base / 'artifacts' / 'datasets' / 'Philosophy', base / 'artifacts' / 'datasets' / 'Conversations']:
-            if d.is_dir():
-                shard_paths.extend(sorted(d.rglob('*.pt')))
-        if not shard_paths:
-            raise SystemExit('❌ No data for REM: no .txt matched and no .pt shards found in artifacts/datasets.')
-        print(f"[rem] Falling back to .pt shards: {len(shard_paths)} files")
-        real_ds = TokenShardDataset(shard_paths, ctx_len=1024)
-        real_loader = DataLoader(
-            real_ds, batch_size=args.rem_batch, shuffle=True, drop_last=True,
-            collate_fn=collate_fn, pin_memory=True, persistent_workers=False
+# -------------------------
+# Main
+# -------------------------
+def main() -> None:
+    args = parse_args()
+    if not torch.cuda.is_available():
+        raise SystemExit("CUDA required.")
+    device = torch.device("cuda")
+
+    set_all_seeds(args.seed)
+    args.run_dir.mkdir(parents=True, exist_ok=True)
+    ckpt_dir = args.run_dir / "checkpoints"
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    metrics_path = args.run_dir / "metrics.jsonl"
+    run_state_path = args.run_dir / "run_state.json"
+    ckpt_last = ckpt_dir / "ckpt_last.pt"
+    ckpt_latest = ckpt_dir / "ckpt_full_latest.pt"
+    ckpt_final = ckpt_dir / "ckpt_full_final.pt"
+
+    sp = tokenizer_special_ids(args.tokenizer)
+    vocab_size = tokenizer_vocab_size(args.tokenizer)
+    cfg_stage = STAGE_PRESETS[args.stage]
+
+    ArdorConfig = import_project_config()
+    model_cfg = ArdorConfig(
+        vocab_size=vocab_size,
+        hidden_size=args.hidden_size,
+        n_layers=args.n_layers,
+        n_heads=args.n_heads,
+        ff_mult=args.ff_mult,
+        max_len=args.ctx,
+        dropout=cfg_stage.dropout,
+        attn_dropout=cfg_stage.dropout,
+        resid_dropout=cfg_stage.dropout,
+        use_rope=True,
+        rope_theta=10000.0,
+    )
+    model_cfg.validate()
+
+    dec_cls = import_project_decoder()
+    model = build_model(dec_cls, model_cfg).to(device)
+    if args.use_compile:
+        try:
+            model = torch.compile(model, mode="max-autotune", fullgraph=False)
+            print(f"[{now_str()}] [compile] enabled")
+        except Exception as e:
+            print(f"[{now_str()}] [compile] failed: {e}")
+
+    try:
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=cfg_stage.lr,
+            betas=(0.9, 0.95),
+            eps=1e-8,
+            weight_decay=cfg_stage.weight_decay,
+            fused=True,
+        )
+    except TypeError:
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=cfg_stage.lr,
+            betas=(0.9, 0.95),
+            eps=1e-8,
+            weight_decay=cfg_stage.weight_decay,
         )
 
-    held_texts = read_texts_from_glob(str(base / args.heldout))
-
-    # ---- Teacher (dreams) ----
-    teacher = None;
-    teacher_tok = None
-    if args.teacher_id:
-        try:
-            from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
-            from peft import PeftModel
-            bnb_cfg = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16)
-            teacher_tok = AutoTokenizer.from_pretrained(args.teacher_adapter_dir or args.teacher_id)
-            base_model = AutoModelForCausalLM.from_pretrained(args.teacher_id, quantization_config=bnb_cfg,
-                                                              device_map='auto')
-            if args.teacher_adapter_dir and Path(base / args.teacher_adapter_dir).exists():
-                teacher = PeftModel.from_pretrained(base_model, str(base / args.teacher_adapter_dir)).to(device).eval()
-            else:
-                teacher = base_model.to(device).eval()
-        except Exception as e:
-            print('[warn] teacher load failed:', e)
-            teacher = None
-
-    # ---- UL ban ids (filtered to vocab range) ----
-    ban_ids = build_ban_ids(tok, args.ban_strings)
-    vocab_size_for_filter = student.token_embed.weight.size(0) if hasattr(student,
-                                                                          "token_embed") else tok.get_vocab_size()
-    if ban_ids is not None:
-        ban_ids = ban_ids[(ban_ids >= 0) & (ban_ids < vocab_size_for_filter)]
-        if ban_ids.numel() == 0:
-            ban_ids = None
-    print('[info] ban_ids count:', 0 if ban_ids is None else ban_ids.numel())
-
-    # ---- Optimizer & scheduler (scheduler counts optimizer updates, not micro-steps) ----
-    opt = torch.optim.AdamW([p for p in student.parameters() if p.requires_grad], lr=args.rem_lr, weight_decay=0.01)
-
-    steps_per_epoch = len(real_loader)
-    eff_steps_per_epoch = min(steps_per_epoch,
-                              args.max_steps_per_epoch) if args.max_steps_per_epoch > 0 else steps_per_epoch
-    updates_per_epoch = math.ceil(eff_steps_per_epoch / max(1, args.grad_acc))
-    total_updates = max(1, args.rem_epochs * updates_per_epoch)
-
-    def cosine_with_warmup(steps, warm):
-        def fn(s):
-            if s < warm: return float(s) / float(max(1, warm))
-            prog = (s - warm) / max(1, (steps - warm))
-            return 0.5 * (1.0 + math.cos(math.pi * prog))
-
-        return fn
-
-    warmup = max(1, int(0.05 * total_updates))
-
-    # ---- SWA ----
-    use_swa = bool(args.swa)
-    if use_swa:
-        from torch.optim.swa_utils import AveragedModel, update_bn
-        swa_model = AveragedModel(student)
-        swa_start = max(0, int(args.rem_epochs * args.swa_start_frac))
-    else:
-        swa_model = None;
-        swa_start = int(1e9)
-
-    # ---- Resume (model + SWA + LR schedule fast-forward) ----
-    start_epoch = 0
-    resume_msg = ""
-    explicit_resume_path = Path(args.resume_from).resolve() if args.resume_from else None
-    explicit_swa_path = Path(args.resume_swa_from).resolve() if args.resume_swa_from else None
-
-    auto_resume_path, finished_epochs = (None, 0) if args.no_auto_resume else find_latest_epoch_ckpt(out_dir)
-    if explicit_resume_path and explicit_resume_path.exists():
-        ck_path = explicit_resume_path
-        start_epoch = 0  # if user points to epoch_N.pt, we'll parse it below
-    elif auto_resume_path:
-        ck_path = auto_resume_path
-        start_epoch = finished_epochs
-    else:
-        ck_path = None
-
-    if ck_path is not None and ck_path.exists():
-        resume_raw = torch.load(ck_path, map_location='cpu')
-        resume_sd = resume_raw.get('state_dict') if isinstance(resume_raw, dict) else resume_raw
-        if isinstance(resume_raw, dict) and isinstance(resume_raw.get('model'), dict) and not isinstance(resume_sd, dict):
-            resume_sd = resume_raw.get('model')
-        student.load_state_dict(resume_sd, strict=False)
-        # parse epoch number from filename
-        m = re.search(r"epoch_(\d+)", ck_path.stem)
-        if m:
-            start_epoch = int(m.group(1))
-        resume_msg += f"[resume] Loaded student from {ck_path.name}; starting at epoch {start_epoch + 1}/{args.rem_epochs}\n"
-
-    # SWA resume (seed averaged weights)
-    if use_swa:
-        if explicit_swa_path and explicit_swa_path.exists():
-            try:
-                swa_raw = torch.load(explicit_swa_path, map_location='cpu')
-                swa_sd = swa_raw.get('state_dict') if isinstance(swa_raw, dict) else swa_raw
-                if isinstance(swa_raw, dict) and isinstance(swa_raw.get('model'), dict) and not isinstance(swa_sd, dict):
-                    swa_sd = swa_raw.get('model')
-                swa_model.load_state_dict(swa_sd, strict=False)
-                resume_msg += f"[resume] Loaded SWA snapshot from {explicit_swa_path.name}\n"
-            except Exception as e:
-                print(f"[warn] failed to load SWA from {explicit_swa_path}: {e}")
-        else:
-            swa_default = out_dir / "swa_snapshot.pt"
-            if swa_default.exists():
-                try:
-                    swa_raw = torch.load(swa_default, map_location='cpu')
-                    swa_sd = swa_raw.get('state_dict') if isinstance(swa_raw, dict) else swa_raw
-                    if isinstance(swa_raw, dict) and isinstance(swa_raw.get('model'), dict) and not isinstance(swa_sd, dict):
-                        swa_sd = swa_raw.get('model')
-                    swa_model.load_state_dict(swa_sd, strict=False)
-                    resume_msg += f"[resume] Loaded SWA snapshot from swa_snapshot.pt\n"
-                except Exception as e:
-                    print(f"[warn] failed to load SWA from swa_snapshot.pt: {e}")
-
-    # Now that we know how many epochs were finished, fast-forward LR schedule
-    prev_updates = start_epoch * updates_per_epoch
-
-    # Ensure param_groups have initial_lr when resuming without optimizer state
-    for pg in opt.param_groups:
-        pg.setdefault('initial_lr', pg['lr'])
-
-    sched = torch.optim.lr_scheduler.LambdaLR(opt, cosine_with_warmup(total_updates, warmup),
-                                              last_epoch=prev_updates - 1)
-
-    if resume_msg:
-        print(resume_msg.strip())
-
-    crit = nn.CrossEntropyLoss(ignore_index=IGNORE_IDX)
-
-    # banner
-    print(f"[cfg] epochs={args.rem_epochs} batch={args.rem_batch} grad_acc={args.grad_acc} "
-          f"lr={args.rem_lr:.2e} swa={args.swa} l2sp={args.l2sp_lambda} ul={args.ul_weight} rank={args.rank_lambda} "
-          f"steps/epoch={steps_per_epoch} (effective {eff_steps_per_epoch}) updates/epoch={updates_per_epoch}")
-
-
-
-    def _checkpoint_payload(model_obj):
-        mm = model_obj.module if hasattr(model_obj, 'module') else model_obj
-        sd = mm.state_dict()
-        if hasattr(mm, 'model_config'):
-            cfg = mm.model_config()
-        elif hasattr(mm, 'cfg') and hasattr(mm.cfg, 'to_dict'):
-            cfg = mm.cfg.to_dict()
-        else:
-            cfg = {}
-        arch = cfg.get('arch') if isinstance(cfg, dict) else None
-        if not arch:
-            arch = type(mm).__name__
-        tok_sha = ''
-        try:
-            tok_sha = hashlib.sha256(Path(tok_path).read_bytes()).hexdigest()
-        except Exception:
-            tok_sha = ''
-        payload = {
-            'state_dict': sd,
-            'model': sd,
-            'arch': arch,
-            'config': cfg,
-            'tokenizer_path': str(tok_path),
-            'tokenizer_vocab_size': int(tok.get_vocab_size()),
-            'tokenizer_sha256': tok_sha,
-            'positional_encoding': cfg.get('positional_encoding') if isinstance(cfg, dict) else None,
-            'meta': cfg if isinstance(cfg, dict) else {},
-        }
-        return payload
-
-    # --------------------------- TRAIN ---------------------------
     global_step = 0
-    for ep in range(start_epoch, args.rem_epochs):
-        # dropout schedule
-        drop_p = max(
-            0.0,
-            args.rem_dropout_max - (float(ep) / max(1, args.rem_epochs - 1)) * (
-                        args.rem_dropout_max - args.rem_dropout_min)
-        )
-        for m in student.modules():
-            if isinstance(m, nn.Dropout):
-                m.p = drop_p
-        print(f"[epoch {ep + 1}] dropout={drop_p:.3f}")
+    tokens_seen = 0
+    best_val = float("inf")
+    if args.resume is not None and args.resume.exists():
+        ckpt = torch.load(args.resume, map_location="cpu")
+        model.load_state_dict(ckpt["model"], strict=True)
+        if "optimizer" in ckpt:
+            optimizer.load_state_dict(ckpt["optimizer"])
+        meta = ckpt.get("meta", {})
+        global_step = int(meta.get("step", 0))
+        tokens_seen = int(meta.get("tokens_seen", 0))
+        best_val = float(meta.get("best_val", best_val))
+        print(f"[{now_str()}] [resume] ckpt={args.resume} step={global_step} tokens_seen={tokens_seen:,}")
 
-        student.train()
-        total_loss = 0.0
-        loss_ema = None
-        t0 = time.time()
-        tok_count = 0
-        steps_in_epoch = len(real_loader)
-        steps_cap = eff_steps_per_epoch
+    train_batcher = None
+    val_batcher = None
+    sft_loader = None
+    sft_val_loader = None
 
-        # Seed pool for dreams
-        seed_pool = texts_all
-        hard_seeds = []
-        if teacher is not None and args.dream_hard_cap > 0 and seed_pool:
-            ranked = student_token_nll(student, str(tok_path), seed_pool, device=device.type,
-                                       cap=args.dream_hard_cap * 4, max_len=1024)
-            hard_seeds = [t for _, t in ranked[:args.dream_hard_cap]]
+    if args.stage in ("lm_base", "stabilize"):
+        if not args.train_tokens.exists():
+            raise SystemExit(f"Missing train tokens: {args.train_tokens}")
+        train_stream = TokenStream(args.train_tokens)
+        train_batcher = StreamBatcher(train_stream, cfg_stage.batch_size, args.ctx, seed=args.seed, random_starts=cfg_stage.random_starts)
+        if args.val_tokens.exists():
+            val_stream = TokenStream(args.val_tokens)
+            val_batcher = StreamBatcher(val_stream, cfg_stage.batch_size, args.ctx, seed=args.seed + 1, random_starts=True)
+    else:
+        if args.sft_jsonl is None or not args.sft_jsonl.exists():
+            raise SystemExit("Stage sft requires --sft_jsonl with prompt/response JSONL.")
+        ds = SFTExampleDataset(args.sft_jsonl, args.tokenizer, args.ctx)
+        n_val = max(64, int(0.02 * len(ds))) if len(ds) >= 512 else max(8, len(ds) // 10)
+        n_train = len(ds) - n_val
+        if n_train <= 0:
+            raise SystemExit("SFT dataset too small after split.")
+        train_ds, val_ds = torch.utils.data.random_split(ds, [n_train, n_val], generator=torch.Generator().manual_seed(args.seed))
+        sft_loader = DataLoader(train_ds, batch_size=cfg_stage.batch_size, shuffle=True, num_workers=2, pin_memory=True, drop_last=True)
+        sft_val_loader = DataLoader(val_ds, batch_size=cfg_stage.batch_size, shuffle=False, num_workers=2, pin_memory=True)
 
-        rand_dialog_n = int(args.dream_rand_cap * args.dialog_ratio)
-        rand_philo_n = max(0, args.dream_rand_cap - rand_dialog_n)
-        rand_seeds = []
-        if dialog_texts:
-            rand_seeds.extend(random.sample(dialog_texts, k=min(rand_dialog_n, len(dialog_texts))))
-        if philo_texts:
-            rand_seeds.extend(random.sample(philo_texts, k=min(rand_philo_n, len(philo_texts))))
-        seed_texts = hard_seeds + rand_seeds
+    micro_tokens = cfg_stage.batch_size * args.ctx
+    grad_accum = int(math.ceil(cfg_stage.target_tokens_per_opt_step / max(1, micro_tokens)))
+    grad_accum = max(1, min(cfg_stage.max_grad_accum, grad_accum))
+    effective_tokens = micro_tokens * grad_accum
 
-        dreams = []
-        if teacher is not None and seed_texts:
-            print(f"[dreams] generating {len(seed_texts)} dreams…")
-            try:
-                dreams = generate_dreams(teacher, teacher_tok, seed_texts, max_new=args.dream_max_new,
-                                         temp=args.dream_temp, top_p=args.dream_top_p, rep_pen=args.dream_rep_pen,
-                                         device=device.type)
-            except Exception as e:
-                print('[warn] dream generation failed:', e);
-                dreams = []
-            torch.cuda.empty_cache()
+    final_tokens_target = cfg_stage.max_train_tokens
+    remaining_tokens = max(0, final_tokens_target - tokens_seen)
+    stop_step = global_step + int(math.ceil(remaining_tokens / max(1, effective_tokens)))
+    sched = WarmupCosine(cfg_stage.lr, max(1, int(cfg_stage.warmup_fraction * max(1, stop_step))), max(1, stop_step))
 
-        dream_loader = None
-        if dreams:
-            dream_ds = TokenChunkDataset(dreams, str(tok_path), ctx_len=1024)
-            if len(dream_ds) > 0:
-                dream_loader = DataLoader(
-                    dream_ds, batch_size=args.rem_batch, shuffle=True, drop_last=True,
-                    collate_fn=collate_fn, pin_memory=True, persistent_workers=False
-                )
-                dream_iter = iter(dream_loader)
+    append_jsonl(metrics_path, {
+        "ts": now_str(),
+        "event": "boot",
+        "stage": cfg_stage.name,
+        "cfg_stage": asdict(cfg_stage),
+        "model_cfg": asdict(model_cfg),
+        "special_ids": sp,
+        "tokens_seen_start": tokens_seen,
+        "stop_step": stop_step,
+        "effective_tokens_per_opt_step": effective_tokens,
+    })
+
+    prompt_tok = build_simple_tokenizer(args.tokenizer)
+    probe_prompts = [
+        "The nature of consciousness is",
+        "What is the purpose of memory?",
+        "Explain why repetition in language models happens.",
+    ]
+    if args.gen_probe_prompts and args.gen_probe_prompts.exists():
+        probe_prompts = [ln.strip() for ln in args.gen_probe_prompts.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+    model.train()
+    loss_sum = 0.0
+    ce_sum = 0.0
+    ul_sum = 0.0
+    time_sum = 0.0
+    batch_iter: Optional[Iterable] = iter(sft_loader) if sft_loader is not None else None
+    t0 = time.time()
+
+    while global_step < stop_step and tokens_seen < final_tokens_target:
+        lr = sched.lr_at(global_step)
+        for pg in optimizer.param_groups:
+            pg["lr"] = lr
+        optimizer.zero_grad(set_to_none=True)
+
+        remaining_tokens = max(0, final_tokens_target - tokens_seen)
+        current_grad_accum = int(math.ceil(remaining_tokens / max(1, micro_tokens)))
+        current_grad_accum = max(1, min(grad_accum, current_grad_accum))
+        current_effective_tokens = current_grad_accum * micro_tokens
+
+        step_ce = 0.0
+        step_ul = 0.0
+
+        for _ in range(current_grad_accum):
+            if args.stage in ("lm_base", "stabilize"):
+                assert train_batcher is not None
+                x, y, _ = train_batcher.next_batch()
             else:
-                dream_iter = None
-        else:
-            dream_iter = None
+                assert batch_iter is not None
+                try:
+                    x, y = next(batch_iter)
+                except StopIteration:
+                    batch_iter = iter(sft_loader)
+                    x, y = next(batch_iter)
+            x = x.to(device, non_blocking=True)
+            y = y.to(device, non_blocking=True)
 
-        accum = 0
-        for i, (xb, yb) in enumerate(real_loader, start=1):
-            if steps_cap and i > steps_cap:
-                break
-
-            xb = xb.to(device, non_blocking=True);
-            yb = yb.to(device, non_blocking=True)
-            with torch.autocast(device_type='cuda', dtype=amp_dtype):
-                logits = student(xb)
-                loss = crit(logits.reshape(-1, logits.size(-1)), yb.reshape(-1))
-
-                # Ranking (light) on real batch
-                if args.rank_lambda > 0:
-                    rloss = inbatch_ranking_loss(logits, yb, margin=float(args.rank_margin), ignore_idx=IGNORE_IDX)
-                    loss = loss + float(args.rank_lambda) * rloss
-
-                # UL on real (masked)
-                if args.ul_weight > 0 and ban_ids is not None:
-                    ul_real = unlikelihood_loss_masked(logits, yb, ban_ids, ignore_idx=IGNORE_IDX)
-                    loss = loss + float(args.ul_weight) * ul_real
-
-                # L2-SP regularizer
-                if args.l2sp_lambda > 0:
-                    loss = loss + l2sp_loss(student, ref_state, strength=args.l2sp_lambda,
-                                            exclude_norm_bias=args.l2sp_exclude_norm_bias)
-
-                # Mix dream batch periodically
-                dream_tok = 0
-                if dream_iter is not None and (global_step % max(1, args.dream_every) == 0):
-                    try:
-                        dx, dy = next(dream_iter)
-                    except StopIteration:
-                        dream_iter = iter(dream_loader);
-                        dx, dy = next(dream_iter)
-                    dx = dx.to(device, non_blocking=True);
-                    dy = dy.to(device, non_blocking=True)
-                    d_logits = student(dx)
-                    d_loss = crit(d_logits.reshape(-1, d_logits.size(-1)), dy.reshape(-1))
-                    if args.rank_lambda > 0:
-                        d_rloss = inbatch_ranking_loss(d_logits, dy, margin=float(args.rank_margin),
-                                                       ignore_idx=IGNORE_IDX)
-                        d_loss = d_loss + float(args.rank_lambda) * d_rloss
-                    if args.ul_weight > 0 and ban_ids is not None:
-                        ul_d = unlikelihood_loss_masked(d_logits, dy, ban_ids, ignore_idx=IGNORE_IDX)
-                        d_loss = d_loss + float(args.ul_weight) * ul_d
-                    loss = loss + float(args.dream_ce_lambda) * d_loss
-                    dream_tok = int((dy != IGNORE_IDX).sum().item())
-
-            # grad accumulation
-            if use_scaler:
-                scaler.scale(loss / max(1, args.grad_acc)).backward()
-            else:
-                (loss / max(1, args.grad_acc)).backward()
-            accum += 1
-
-            # tokens processed this iteration
-            tok_count += int((yb != IGNORE_IDX).sum().item()) + dream_tok
-
-            if accum % max(1, args.grad_acc) == 0:
-                torch.nn.utils.clip_grad_norm_([p for p in student.parameters() if p.requires_grad], 1.0)
-                if use_scaler:
-                    scaler.step(opt);
-                    scaler.update()
+            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                logits = model(x)
+                if args.stage == "sft":
+                    ce = masked_ce_loss(logits, y, label_smoothing=cfg_stage.label_smoothing)
+                    ul = repeated_ngram_unlikelihood_loss(logits, torch.where(y >= 0, y, torch.zeros_like(y)), ngram=cfg_stage.ul_ngram, tail=cfg_stage.ul_tail)
                 else:
-                    opt.step()
-                opt.zero_grad(set_to_none=True)
-                sched.step()
+                    ce = ce_loss(logits, y, label_smoothing=cfg_stage.label_smoothing)
+                    ul = repeated_ngram_unlikelihood_loss(logits, y, ngram=cfg_stage.ul_ngram, tail=cfg_stage.ul_tail)
+                loss = (ce + cfg_stage.ul_weight * ul) / current_grad_accum
+            loss.backward()
+            step_ce += float(ce.item())
+            step_ul += float(ul.item())
 
-                if use_swa and ep >= swa_start:
-                    swa_model.update_parameters(student)
+        if cfg_stage.grad_clip > 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), cfg_stage.grad_clip)
+        optimizer.step()
 
-            # progress line
-            loss_val = float(loss.item())
-            loss_ema = loss_val if loss_ema is None else (0.95 * loss_ema + 0.05 * loss_val)
-            elapsed = max(1e-3, time.time() - t0)
-            tps = tok_count / elapsed
-            lr = opt.param_groups[0]['lr']
-            if torch.cuda.is_available():
-                alloc = torch.cuda.memory_allocated(device) / (1024 ** 3)
-                total = torch.cuda.get_device_properties(device).total_memory / (1024 ** 3)
-                mem_str = f"{alloc:.1f}/{total:.1f}G"
+        global_step += 1
+        tokens_seen += current_effective_tokens
+        dt = time.time() - t0
+        t0 = time.time()
+        time_sum += dt
+        loss_sum += step_ce + cfg_stage.ul_weight * step_ul
+        ce_sum += step_ce
+        ul_sum += step_ul
+
+        if global_step % cfg_stage.log_every == 0:
+            avg_loss = loss_sum / cfg_stage.log_every
+            avg_ce = ce_sum / cfg_stage.log_every
+            avg_ul = ul_sum / cfg_stage.log_every
+            tok_s = (cfg_stage.log_every * effective_tokens) / max(1e-9, time_sum)
+            print(f"[{now_str()}] stage={cfg_stage.name} step={global_step}/{stop_step} tok/s={tok_s:,.0f} loss={avg_loss:.4f} ce={avg_ce:.4f} ul={avg_ul:.4f}")
+            append_jsonl(metrics_path, {
+                "ts": now_str(),
+                "event": "train",
+                "stage": cfg_stage.name,
+                "step": global_step,
+                "tokens_seen": tokens_seen,
+                "loss": avg_loss,
+                "ce": avg_ce,
+                "ul": avg_ul,
+                "lr": lr,
+                "tok_s": tok_s,
+            })
+            loss_sum = ce_sum = ul_sum = 0.0
+            time_sum = 0.0
+
+        if global_step % cfg_stage.eval_every == 0:
+            if args.stage in ("lm_base", "stabilize") and val_batcher is not None:
+                val_loss = eval_stream_loss(model, val_batcher, steps=24, device=device, label_smoothing=cfg_stage.label_smoothing)
+            elif args.stage == "sft" and sft_val_loader is not None:
+                val_loss = eval_sft_loss(model, sft_val_loader, device=device, label_smoothing=cfg_stage.label_smoothing)
             else:
-                mem_str = "cpu"
-            print(f"\r[ep {ep + 1}/{args.rem_epochs}] step {i:4d}/{steps_cap or steps_in_epoch} | "
-                  f"loss~{loss_ema:.4f} | lr {lr:.2e} | tok/s {tps:.0f} | mem {mem_str}",
-                  end='', flush=True)
+                val_loss = float("nan")
+            best_val = min(best_val, val_loss) if not math.isnan(val_loss) else best_val
+            append_jsonl(metrics_path, {
+                "ts": now_str(),
+                "event": "eval",
+                "stage": cfg_stage.name,
+                "step": global_step,
+                "tokens_seen": tokens_seen,
+                "val_loss": val_loss,
+                "best_val": best_val,
+            })
+            print(f"[{now_str()}] [eval] stage={cfg_stage.name} step={global_step} val_loss={val_loss:.4f} best={best_val:.4f}")
 
-            total_loss += loss_val
-            global_step += 1
-        print()  # newline after epoch progress
+        if global_step % cfg_stage.gen_eval_every == 0:
+            model.eval()
+            gen_rows = []
+            for prompt in probe_prompts[:3]:
+                enc = prompt_tok.encode(prompt)
+                ids = list(enc.ids)
+                out = sample_generate(model, ids, max_new_tokens=96, eos_id=sp["eos_id"], top_p=0.9, temperature=0.8)
+                gen_metrics = repetition_metrics(out)
+                gen_rows.append({"prompt": prompt, "metrics": gen_metrics, "ids_tail": out[-32:]})
+            append_jsonl(metrics_path, {
+                "ts": now_str(),
+                "event": "gen_eval",
+                "stage": cfg_stage.name,
+                "step": global_step,
+                "tokens_seen": tokens_seen,
+                "samples": gen_rows,
+            })
+            model.train()
 
-        avg_loss = total_loss / max(1, min(steps_in_epoch, steps_cap) if steps_cap else steps_in_epoch)
-        print(f"[epoch {ep + 1}] avg_loss={avg_loss:.4f}")
+        if global_step % cfg_stage.save_every == 0:
+            state = {
+                "model": maybe_strip_compile_prefix(model.state_dict()),
+                "meta": {
+                    "step": global_step,
+                    "tokens_seen": tokens_seen,
+                    "stage": cfg_stage.name,
+                    "best_val": best_val,
+                    "special_ids": sp,
+                },
+            }
+            safe_torch_save(state, ckpt_last)
+            full = {
+                "model": maybe_strip_compile_prefix(model.state_dict()),
+                "optimizer": optimizer.state_dict(),
+                "meta": {
+                    "step": global_step,
+                    "tokens_seen": tokens_seen,
+                    "stage": cfg_stage.name,
+                    "best_val": best_val,
+                    "special_ids": sp,
+                },
+            }
+            safe_torch_save(full, ckpt_latest)
+            latest_path = str(ckpt_latest)
+            atomic_write_json(run_state_path, {
+                "global_step": global_step,
+                "tokens_seen": tokens_seen,
+                "stage": cfg_stage.name,
+                "lr": lr,
+                "best_val": best_val,
+                "ckpt_last": latest_path,
+            })
 
-        # quick eval on heldout
-        student.eval()
-        ppl = None
-        if held_texts:
-            try:
-                nlls = student_token_nll(student, str(tok_path), held_texts, device=device.type, cap=32, max_len=1024)
-                if nlls:
-                    ppl = math.exp(sum(x[0] for x in nlls) / max(1, len(nlls)))
-            except Exception as e:
-                print('[warn] quick eval failed:', e)
-        print(f"[epoch {ep + 1}] quick heldout ppl={ppl}")
-
-        # checkpoint
-        ck = out_dir / f'epoch_{ep + 1:02d}.pt'
-        torch.save(_checkpoint_payload(student), ck)
-        print('[save] epoch ckpt ->', ck)
-
-        if use_swa and swa_model is not None:
-            torch.save(_checkpoint_payload(swa_model), out_dir / 'swa_snapshot.pt')
-
-    # finalize SWA
-    final_model = student
-    if use_swa and swa_model is not None:
-        try:
-            from torch.optim.swa_utils import update_bn
-            update_bn(real_loader, swa_model)
-            final_model = swa_model
-            print('[swa] finalized & BN updated')
-        except Exception as e:
-            print('[swa] BN update skipped:', e)
-            final_model = student
-
-    # save final
-    final_path = out_path
-    torch.save(_checkpoint_payload(final_model), final_path)
-    print('[done] saved final REM model ->', final_path)
+    final = {
+        "model": maybe_strip_compile_prefix(model.state_dict()),
+        "optimizer": optimizer.state_dict(),
+        "meta": {
+            "step": global_step,
+            "tokens_seen": tokens_seen,
+            "stage": cfg_stage.name,
+            "best_val": best_val,
+            "special_ids": sp,
+        },
+    }
+    safe_torch_save(final, ckpt_final)
+    atomic_write_json(run_state_path, {
+        "global_step": global_step,
+        "tokens_seen": tokens_seen,
+        "stage": cfg_stage.name,
+        "best_val": best_val,
+        "ckpt_last": str(ckpt_final),
+    })
+    append_jsonl(metrics_path, {"ts": now_str(), "event": "done", "stage": cfg_stage.name, "step": global_step, "tokens_seen": tokens_seen})
+    print(f"[{now_str()}] [done] stage={cfg_stage.name} step={global_step} tokens_seen={tokens_seen:,}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
