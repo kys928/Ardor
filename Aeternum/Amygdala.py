@@ -201,7 +201,7 @@ class Amygdala(AeternumModule, nn.Module):
         return rate, prob, latency
 
     def step(self, state: EmotionState) -> EmotionState:
-        st = state.copy()
+        st = state.detach().clone()
 
         # 1) Hazard fast path (text)
         haz_vec = _hazard_features(self._last_text).to(self.device)

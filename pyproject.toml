@@ -8,12 +8,25 @@ version = "0.1.0"
 description = "Ardor runtime and neurobiological orchestration stack"
 readme = "README.md"
 requires-python = ">=3.10,<3.12"
-dependencies = []
+dependencies = [
+  "numpy>=1.26,<3",
+  "tokenizers>=0.15,<1",
+  "torch>=2.2,<3",
+  "tqdm>=4.66,<5",
+]
+
 
 [project.optional-dependencies]
-dev = []
+dev = [
+  "pytest>=8,<9",
+]
 gui = []
-hf = []
+hf = [
+  "huggingface_hub>=0.23,<1",
+  "transformers>=4.41,<5",
+  "safetensors>=0.4,<1",
+  "accelerate>=0.30,<1",
+]
 
 [project.scripts]
 ardor-bootstrap = "scripts.bootstrap_runtime:main"
@@ -24,7 +37,14 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["Cerebrum*", "Aeternum*", "Praetor*", "Erratum*", "Hephaestus*", "scripts*"]
+include = [
+  "Cerebrum*",
+  "Aeternum*",
+  "Praetor*",
+  "Erratum*",
+  "Hephaestus*",
+  "scripts*",
+]
 
 [tool.uv]
 package = false

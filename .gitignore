@@ -79,3 +79,10 @@ logs/
 
 rem_status.json
 ardor_dialogues.jsonl
+
+# local runtime / notebook junk
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+.uv/
+.venv/
+.workspace/

@@ -51,7 +51,7 @@ class RetrievalBackend:
         vals, idx = torch.topk(sims, k=min(k, sims.numel()))
         out: List[Dict[str, Any]] = []
         for j, i in enumerate(idx.tolist()):
-            out.append({"trace": self.index_texts[i][:220], "score": float(vals[j])})
+            out.append({"trace": self.index_texts[i][:220], "score": vals[j].detach().item()})
         return out
 
     def project_to_generation_space(self, x: torch.Tensor) -> torch.Tensor:
