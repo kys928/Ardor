@@ -697,24 +697,26 @@ class ArdorCore:
         self.enable_retrieval = bool(enable_retrieval)
         self.model_path = model_path
 
+        allow_partial_load = os.environ.get("ARDOR_ALLOW_PARTIAL_LOAD", "0").strip() in ("1", "true", "TRUE", "yes", "YES")
         self.backend = load_backend(
             model_path=model_path,
             tokenizer_path=tokenizer_path,
             device=device,
             repo_root=REPO_ROOT,
-            backend_family=backend_family,
+            backend_type=backend_family,
             encoder_ckpt=encoder_ckpt,
+            allow_partial_load=allow_partial_load,
         )
-        self.model = getattr(self.backend, "model", None)
-        self.tokenizer = getattr(self.backend, "tokenizer", None)
+        self.model = self.backend.unwrap_model()
+        self.tokenizer = self.backend.get_tokenizer()
         self.tokenizer_path = self.backend.tokenizer_path()
 
-        self.schema = self.backend.schema()
+        self.schema = self.backend.describe()
         self.layers = int(self.schema.get("layers")) if self.schema.get("layers") is not None else None
         self.heads = int(self.schema.get("heads")) if self.schema.get("heads") is not None else None
         self.hidden = int(self.schema.get("hidden")) if self.schema.get("hidden") is not None else None
         self.model_ctx_len = int(self.schema.get("max_len")) if self.schema.get("max_len") is not None else None
-        self.vocab_size = int(self.schema.get("vocab") or self.backend.vocab_size())
+        self.vocab_size = int(self.schema.get("vocab") or self.backend.get_vocab_size())
 
         mismatch = self.schema.get("mismatch") or {"missing": [], "unexpected": []}
         miss_ct = len(mismatch.get("missing") or [])
@@ -1161,6 +1163,20 @@ class ArdorCore:
         _jlog(logging.DEBUG, "[PFC] model_schema called")
         return dict(self.schema)
 
+    def _native_token_embed_mean(self, text: str) -> torch.Tensor:
+        if self.schema.get("backend_type") != "native":
+            raise RuntimeError("Native token embedding fallback is only available for native backend models.")
+        if not isinstance(self.tokenizer, Tokenizer):
+            raise RuntimeError("Native token embedding fallback requires a native tokenizers.Tokenizer instance.")
+        model_native = self.backend.unwrap_model()
+        if not hasattr(model_native, "token_embed"):
+            raise RuntimeError("Native backend model does not expose token_embed required for fallback pooling.")
+        enc_tmp = self.tokenizer.encode(text)
+        ids_tmp = torch.tensor([enc_tmp.ids], device=self.device)
+        with torch.no_grad():
+            tok_emb = model_native.token_embed(ids_tmp)  # type: ignore[attr-defined]
+            return tok_emb.mean(dim=1)
+
     def generate_text(
         self,
         prompt: str,
@@ -1257,12 +1273,8 @@ class ArdorCore:
         if self.aet is not None:
             try:
                 pooled_for_aet = turn_embedding
-                if pooled_for_aet is None and isinstance(self.tokenizer, Tokenizer) and self.model is not None:
-                    enc_tmp = self.tokenizer.encode(orig_user_prompt)
-                    ids_tmp = torch.tensor([enc_tmp.ids], device=self.device)
-                    with torch.no_grad():
-                        tok_emb = self.model.token_embed(ids_tmp)  # type: ignore[attr-defined]
-                        pooled_for_aet = tok_emb.mean(dim=1)
+                if pooled_for_aet is None and isinstance(self.tokenizer, Tokenizer) and self.schema.get("backend_type") == "native":
+                    pooled_for_aet = self._native_token_embed_mean(orig_user_prompt)
                 aet_decision = self.aet.update(
                     text=orig_user_prompt,
                     pooled_embedding=pooled_for_aet,
@@ -1375,14 +1387,7 @@ class ArdorCore:
             return logits
 
         def _model_forward(input_ids: torch.Tensor) -> torch.Tensor:
-            if hasattr(self.backend, "forward_logits"):
-                return self.backend.forward_logits(input_ids)
-            out = self.model(input_ids)  # type: ignore[operator]
-            if isinstance(out, (list, tuple)) and len(out) > 0:
-                out = out[0]
-            if isinstance(out, dict) and "logits" in out:
-                out = out["logits"]
-            return out
+            return self.backend.forward_logits(input_ids, attention_mask=None)
 
         def decode_once(temp: float, p: float) -> str:
             nonlocal ids, generated, first_token
