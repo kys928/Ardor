@@ -47,7 +47,14 @@ def remap_to_model_schema(sd: dict, model_state_keys: set[str]) -> dict:
     expects_layers = any(k.startswith("layers.") for k in model_state_keys)
     has_blocks = any(k.startswith("blocks.") for k in new)
     has_layers = any(k.startswith("layers.") for k in new)
-    if expects_blocks and has_layers:
+    if expects_blocks and expects_layers:
+        if has_blocks and not has_layers:
+            extra = {f"layers.{k[len('blocks.'):]}": v for k, v in new.items() if k.startswith("blocks.")}
+            new = {**new, **extra}
+        elif has_layers and not has_blocks:
+            extra = {f"blocks.{k[len('layers.'):]}": v for k, v in new.items() if k.startswith("layers.")}
+            new = {**new, **extra}
+    elif expects_blocks and has_layers:
         new = _rename_prefix(new, "layers.", "blocks.")
     elif expects_layers and has_blocks:
         new = _rename_prefix(new, "blocks.", "layers.")
@@ -256,7 +263,14 @@ def resolve_state_dict_from_raw(raw) -> dict:
     raise ValueError("Expected dict state_dict, got module.")
 
 
-def describe_model(model: torch.nn.Module, mismatch: Optional[dict] = None) -> Dict[str, Any]:
+def describe_model(
+    model: torch.nn.Module,
+    mismatch: Optional[dict] = None,
+    *,
+    strict_loaded: bool = True,
+    partial_loaded: bool = False,
+    checkpoint_path: Optional[str] = None,
+) -> Dict[str, Any]:
     desc = introspect_model(model)
     if hasattr(model, "model_config") and callable(model.model_config):
         try:
@@ -271,11 +285,18 @@ def describe_model(model: torch.nn.Module, mismatch: Optional[dict] = None) -> D
                 })
         except Exception:
             pass
-    desc["mismatch"] = mismatch or {"missing": [], "unexpected": []}
+    mm = mismatch or {"missing": [], "unexpected": []}
+    desc["mismatch"] = mm
+    desc["strict_loaded"] = bool(strict_loaded)
+    desc["partial_loaded"] = bool(partial_loaded)
+    desc["missing_keys"] = list(mm.get("missing") or [])
+    desc["unexpected_keys"] = list(mm.get("unexpected") or [])
+    if checkpoint_path is not None:
+        desc["checkpoint_path"] = checkpoint_path
     return desc
 
 
-def load_native_decoder(model_path: str, device: str):
+def load_native_decoder(model_path: str, device: str, *, allow_partial_load: bool = False):
     try:
         raw = torch.load(model_path, map_location=device, weights_only=False)
     except TypeError:
@@ -288,7 +309,12 @@ def load_native_decoder(model_path: str, device: str):
             want_vocab = int(model.lm_head.weight.shape[0])
         except Exception:
             want_vocab = int(model.token_embed.weight.shape[0])
-        return model, describe_model(model), want_vocab, checkpoint_meta
+        return (
+            model,
+            describe_model(model, strict_loaded=True, partial_loaded=False, checkpoint_path=model_path),
+            want_vocab,
+            checkpoint_meta,
+        )
 
     sd = resolve_state_dict_from_raw(raw)
     model = None
@@ -317,15 +343,45 @@ def load_native_decoder(model_path: str, device: str):
         model = ArdorDecoder(cfg)
 
     remapped = remap_to_model_schema(sd, set(model.state_dict().keys()))
-    missing_list: List[str] = []
-    unexpected_list: List[str] = []
+    strict_loaded = False
+    partial_loaded = False
+    mismatch = {"missing": [], "unexpected": []}
     try:
         model.load_state_dict(remapped, strict=True)
-    except Exception:
+        strict_loaded = True
+    except Exception as strict_err:
+        if not allow_partial_load:
+            try:
+                missing, unexpected = model.load_state_dict(remapped, strict=False)
+                mismatch = {
+                    "missing": list(missing) if isinstance(missing, list) else list(missing or []),
+                    "unexpected": list(unexpected) if isinstance(unexpected, list) else list(unexpected or []),
+                }
+            except Exception:
+                mismatch = {"missing": [], "unexpected": []}
+            raise RuntimeError(
+                "Strict native checkpoint load failed. "
+                f"Set allow_partial_load=True to opt into partial loading. "
+                f"missing_keys={mismatch['missing']} unexpected_keys={mismatch['unexpected']}"
+            ) from strict_err
         missing, unexpected = model.load_state_dict(remapped, strict=False)
-        missing_list = list(missing) if isinstance(missing, list) else list(missing or [])
-        unexpected_list = list(unexpected) if isinstance(unexpected, list) else list(unexpected or [])
+        mismatch = {
+            "missing": list(missing) if isinstance(missing, list) else list(missing or []),
+            "unexpected": list(unexpected) if isinstance(unexpected, list) else list(unexpected or []),
+        }
+        partial_loaded = True
 
     model = model.to(device).eval()
     want_vocab = int(getattr(model, "vocab_size", 0) or infer_dims_from_state(sd)[0])
-    return model, describe_model(model, {"missing": missing_list, "unexpected": unexpected_list}), want_vocab, checkpoint_meta
+    return (
+        model,
+        describe_model(
+            model,
+            mismatch,
+            strict_loaded=strict_loaded,
+            partial_loaded=partial_loaded,
+            checkpoint_path=model_path,
+        ),
+        want_vocab,
+        checkpoint_meta,
+    )
