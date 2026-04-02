@@ -7,9 +7,9 @@ from typing import Any, Dict
 @dataclass
 class ArdorConfig:
     vocab_size: int
-    hidden_size: int = 384
-    n_layers: int = 8
-    n_heads: int = 6
+    hidden_size: int = 1536
+    n_layers: int = 33
+    n_heads: int = 24
     max_len: int = 2048
     ff_mult: int = 4
     dropout: float = 0.15
