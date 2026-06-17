@@ -329,7 +329,15 @@ def load_native_decoder(model_path: str, device: str, *, allow_partial_load: boo
     if model is None:
         vocab, hidden, layers, max_len = infer_dims_from_state(sd)
         use_rope = "position_embed.weight" not in sd
-        heads = best_heads(hidden)
+        heads = int(
+            checkpoint_meta.get("n_heads")
+            or checkpoint_meta.get("heads")
+            or best_heads(hidden)
+        )
+        if hidden % heads != 0:
+            raise ValueError(
+                f"Invalid checkpoint head count: hidden_size={hidden} is not divisible by n_heads={heads}"
+            )
         cfg = ArdorConfig(
             vocab_size=vocab, hidden_size=hidden, n_layers=layers, n_heads=heads, max_len=max_len,
             dropout=float(checkpoint_meta.get("dropout", 0.15) or 0.15),
