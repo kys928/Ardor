@@ -74,11 +74,16 @@ jobs:
                       binary,
                   )
                   binary.chmod(0o755)
-                  subprocess.run(
-                      [str(binary), 'config', '--apiKey', os.environ['RUNPOD_API_KEY']],
-                      check=True,
-                      stdout=subprocess.DEVNULL,
-                  )
+              config_dir = Path.home() / '.runpod'
+              config_dir.mkdir(parents=True, exist_ok=True)
+              config_file = config_dir / '.runpod.yaml'
+              if not config_file.exists():
+                  config_file.write_text('{}\n', encoding='utf-8')
+              subprocess.run(
+                  [str(binary), 'config', '--apiKey', os.environ['RUNPOD_API_KEY']],
+                  check=True,
+                  stdout=subprocess.DEVNULL,
+              )
               raw = subprocess.check_output([str(binary), 'datacenter', 'list'], text=True)
               rows = json.loads(raw)
               match = next((row for row in rows if row.get('id') == datacenter), None)
