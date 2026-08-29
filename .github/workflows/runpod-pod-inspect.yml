@@ -20,13 +20,13 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Inspect requested Pods and registry images
+      - name: Inspect requested Pods, registry images, and datacenter capacity
         shell: bash
         run: |
           set -euo pipefail
           git diff --name-only "$GITHUB_SHA^" "$GITHUB_SHA" -- 'runpod/inspect/*.json' > /tmp/runpod-inspect.txt
           python - <<'PY'
-          import json, os, re, urllib.error, urllib.parse, urllib.request
+          import json, os, re, subprocess, urllib.error, urllib.parse, urllib.request
           from pathlib import Path
 
           def check_public_ghcr(tag: str) -> None:
@@ -64,6 +64,28 @@ jobs:
                   }, indent=2))
                   raise SystemExit('GHCR image is not anonymously pullable')
 
+          def inspect_datacenter(datacenter: str) -> None:
+              if not re.fullmatch(r'[A-Z]{2,3}-[A-Z]{2,3}-[0-9]+', datacenter):
+                  raise SystemExit(f'Unsafe datacenter id: {datacenter!r}')
+              binary = Path('/tmp/runpodctl')
+              if not binary.exists():
+                  urllib.request.urlretrieve(
+                      'https://github.com/runpod/runpodctl/releases/latest/download/runpodctl-linux-amd64',
+                      binary,
+                  )
+                  binary.chmod(0o755)
+                  subprocess.run(
+                      [str(binary), 'config', '--apiKey', os.environ['RUNPOD_API_KEY']],
+                      check=True,
+                      stdout=subprocess.DEVNULL,
+                  )
+              raw = subprocess.check_output([str(binary), 'datacenter', 'list'], text=True)
+              rows = json.loads(raw)
+              match = next((row for row in rows if row.get('id') == datacenter), None)
+              if match is None:
+                  raise SystemExit(f'Datacenter not returned by RunPod: {datacenter}')
+              print(json.dumps({'datacenter': match}, indent=2))
+
           for raw_path in Path('/tmp/runpod-inspect.txt').read_text().splitlines():
               path = Path(raw_path.strip())
               if not path.is_file():
@@ -73,6 +95,10 @@ jobs:
               image_tag = str(spec.get('image_tag', '')).strip()
               if image_tag:
                   check_public_ghcr(image_tag)
+
+              datacenter = str(spec.get('datacenter', '')).strip()
+              if datacenter:
+                  inspect_datacenter(datacenter)
 
               pod_id = str(spec.get('pod_id', '')).strip()
               if not pod_id:
