@@ -1,0 +1,41 @@
+name: Ardor RunPod Agent Image
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Ardor
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish Ardor RunPod agent
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/runpod-agent.Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/ardor-runpod:latest
+            ghcr.io/${{ github.repository_owner }}/ardor-runpod:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
