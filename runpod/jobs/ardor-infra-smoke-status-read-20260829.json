@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-infra-smoke-status-read-20260829",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "ardor-control/runs/ardor-infra-smoke-20260829/run-1788039676-c5fe1848/status.json",
+    "max_bytes": 262144
+  }
+}
