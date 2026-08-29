@@ -1,0 +1,125 @@
+name: RunPod Discovery
+
+on:
+  push:
+    branches:
+      - infra/runpod-ardor-discovery
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+      RUNPOD_S3_ACCESS_KEY_ID: ${{ secrets.RUNPOD_S3_ACCESS_KEY_ID }}
+      RUNPOD_S3_SECRET_ACCESS_KEY: ${{ secrets.RUNPOD_S3_SECRET_ACCESS_KEY }}
+      RUNPOD_NETWORK_VOLUME_ID: ${{ vars.RUNPOD_NETWORK_VOLUME_ID }}
+      RUNPOD_DATACENTER_ID: ${{ vars.RUNPOD_DATACENTER_ID }}
+      RUNPOD_S3_ENDPOINT: ${{ vars.RUNPOD_S3_ENDPOINT }}
+      RUNPOD_ALLOWED_GPU_TYPES: ${{ vars.RUNPOD_ALLOWED_GPU_TYPES }}
+      RUNPOD_IMAGE_NAME: ${{ vars.RUNPOD_IMAGE_NAME }}
+      RUNPOD_MAX_READ_TEXT_BYTES: ${{ vars.RUNPOD_MAX_READ_TEXT_BYTES }}
+      RUNPOD_MAX_ARTIFACT_BYTES: ${{ vars.RUNPOD_MAX_ARTIFACT_BYTES }}
+      RUNPOD_STATUS_POLL_SECONDS: ${{ vars.RUNPOD_STATUS_POLL_SECONDS }}
+      EXPECTED_VOLUME_ID: ahhwttai5o
+      EXPECTED_DATACENTER_ID: EU-RO-1
+      EXPECTED_S3_ENDPOINT: https://s3api-eu-ro-1.runpod.io/
+
+    steps:
+      - name: Check configured names
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          required = [
+              "RUNPOD_API_KEY",
+              "RUNPOD_S3_ACCESS_KEY_ID",
+              "RUNPOD_S3_SECRET_ACCESS_KEY",
+              "RUNPOD_NETWORK_VOLUME_ID",
+              "RUNPOD_DATACENTER_ID",
+          ]
+          recommended = [
+              "RUNPOD_S3_ENDPOINT",
+              "RUNPOD_ALLOWED_GPU_TYPES",
+              "RUNPOD_IMAGE_NAME",
+              "RUNPOD_MAX_READ_TEXT_BYTES",
+              "RUNPOD_MAX_ARTIFACT_BYTES",
+              "RUNPOD_STATUS_POLL_SECONDS",
+          ]
+          result = {
+              "required": {name: bool(os.environ.get(name, "").strip()) for name in required},
+              "recommended": {name: bool(os.environ.get(name, "").strip()) for name in recommended},
+          }
+          print(json.dumps(result, indent=2))
+          missing = [name for name in required if not os.environ.get(name, "").strip()]
+          if missing:
+              raise SystemExit("Missing required configuration names: " + ", ".join(missing))
+          PY
+
+      - name: Verify repository variables
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          volume = os.environ["RUNPOD_NETWORK_VOLUME_ID"].strip()
+          dc = os.environ["RUNPOD_DATACENTER_ID"].strip()
+          endpoint = os.environ.get("RUNPOD_S3_ENDPOINT", "").strip()
+          if volume != os.environ["EXPECTED_VOLUME_ID"]:
+              raise SystemExit(f"RUNPOD_NETWORK_VOLUME_ID mismatch: expected {os.environ['EXPECTED_VOLUME_ID']!r}, got {volume!r}")
+          if dc != os.environ["EXPECTED_DATACENTER_ID"]:
+              raise SystemExit(f"RUNPOD_DATACENTER_ID mismatch: expected {os.environ['EXPECTED_DATACENTER_ID']!r}, got {dc!r}")
+          if endpoint and endpoint.rstrip('/') != os.environ["EXPECTED_S3_ENDPOINT"].rstrip('/'):
+              raise SystemExit(f"RUNPOD_S3_ENDPOINT mismatch: expected {os.environ['EXPECTED_S3_ENDPOINT']!r}, got {endpoint!r}")
+          print(f"Repository variables match expected volume={volume} datacenter={dc}")
+          print(f"S3 endpoint configured={'yes' if endpoint else 'no (controller can derive it)'}")
+          PY
+
+      - name: Verify RunPod API access and volume identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, urllib.request
+          volume_id = os.environ["RUNPOD_NETWORK_VOLUME_ID"].strip()
+          req = urllib.request.Request(
+              f"https://rest.runpod.io/v1/networkvolumes/{volume_id}",
+              headers={"Authorization": f"Bearer {os.environ['RUNPOD_API_KEY']}"},
+          )
+          with urllib.request.urlopen(req, timeout=45) as r:
+              data = json.load(r)
+          safe = {k: data.get(k) for k in ("id", "name", "size", "dataCenterId")}
+          print(json.dumps(safe, indent=2))
+          if str(data.get("id")) != volume_id:
+              raise SystemExit("RunPod returned a different volume id")
+          if str(data.get("dataCenterId")) != os.environ["EXPECTED_DATACENTER_ID"]:
+              raise SystemExit("RunPod volume datacenter does not match expected datacenter")
+          PY
+
+      - name: Install boto3
+        run: python -m pip install --quiet boto3
+
+      - name: Verify S3-compatible access
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          import boto3
+          from botocore.config import Config
+          dc = os.environ["RUNPOD_DATACENTER_ID"].strip()
+          endpoint = os.environ.get("RUNPOD_S3_ENDPOINT", "").strip() or os.environ["EXPECTED_S3_ENDPOINT"]
+          client = boto3.client(
+              "s3",
+              endpoint_url=endpoint,
+              region_name=dc.lower(),
+              aws_access_key_id=os.environ["RUNPOD_S3_ACCESS_KEY_ID"],
+              aws_secret_access_key=os.environ["RUNPOD_S3_SECRET_ACCESS_KEY"],
+              config=Config(signature_version="s3v4"),
+          )
+          response = client.list_objects_v2(Bucket=os.environ["RUNPOD_NETWORK_VOLUME_ID"], MaxKeys=5)
+          rows = [{"key": item.get("Key"), "size": item.get("Size")} for item in response.get("Contents", [])]
+          print(json.dumps({"s3_ok": True, "sample_objects": rows}, indent=2))
+          PY
