@@ -1,0 +1,52 @@
+name: Ardor RunPod Terminate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "runpod/terminate/*.json"
+
+permissions:
+  contents: read
+
+jobs:
+  terminate:
+    runs-on: ubuntu-latest
+    env:
+      RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+      RUNPOD_S3_ACCESS_KEY_ID: ${{ secrets.RUNPOD_S3_ACCESS_KEY_ID }}
+      RUNPOD_S3_SECRET_ACCESS_KEY: ${{ secrets.RUNPOD_S3_SECRET_ACCESS_KEY }}
+      RUNPOD_NETWORK_VOLUME_ID: ${{ vars.RUNPOD_NETWORK_VOLUME_ID }}
+      RUNPOD_DATACENTER_ID: ${{ vars.RUNPOD_DATACENTER_ID }}
+      RUNPOD_S3_ENDPOINT: ${{ vars.RUNPOD_S3_ENDPOINT }}
+    steps:
+      - name: Check out Ardor
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install boto3
+        run: python -m pip install --disable-pip-version-check boto3
+
+      - name: Terminate requested control runs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only "$GITHUB_SHA^" "$GITHUB_SHA" -- 'runpod/terminate/*.json' > /tmp/runpod-terminate.txt
+          while IFS= read -r spec; do
+            [[ -z "$spec" || ! -f "$spec" ]] && continue
+            control_run_id="$(python - "$spec" <<'PY'
+          import json, re, sys
+          value = str(json.load(open(sys.argv[1], encoding='utf-8')).get('control_run_id', ''))
+          if not re.fullmatch(r'run-[A-Za-z0-9._-]+', value):
+              raise SystemExit('Unsafe control_run_id')
+          print(value)
+          PY
+          )"
+            python scripts/runpod_control.py terminate-run --control-run-id "$control_run_id"
+          done < /tmp/runpod-terminate.txt
