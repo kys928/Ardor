@@ -1,0 +1,63 @@
+name: Ardor RunPod Pod Inspect
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "runpod/inspect/*.json"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    env:
+      RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+    steps:
+      - name: Check out Ardor
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: Inspect requested Pods
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only "$GITHUB_SHA^" "$GITHUB_SHA" -- 'runpod/inspect/*.json' > /tmp/runpod-inspect.txt
+          python - <<'PY'
+          import json, os, re, urllib.request
+          from pathlib import Path
+
+          for raw_path in Path('/tmp/runpod-inspect.txt').read_text().splitlines():
+              path = Path(raw_path.strip())
+              if not path.is_file():
+                  continue
+              spec = json.loads(path.read_text())
+              pod_id = str(spec.get('pod_id', ''))
+              if not re.fullmatch(r'[A-Za-z0-9_-]{4,64}', pod_id):
+                  raise SystemExit(f'Unsafe pod id in {path}')
+              req = urllib.request.Request(
+                  f'https://rest.runpod.io/v1/pods/{pod_id}',
+                  headers={
+                      'Authorization': f"Bearer {os.environ['RUNPOD_API_KEY']}",
+                      'Accept': 'application/json',
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=45) as response:
+                      pod = json.load(response)
+              except urllib.error.HTTPError as exc:
+                  body = exc.read().decode('utf-8', errors='replace')
+                  print(json.dumps({'pod_id': pod_id, 'http_status': exc.code, 'body': body}))
+                  continue
+
+              allowed = [
+                  'id', 'name', 'desiredStatus', 'status', 'cloudType', 'gpuCount',
+                  'gpuTypeIds', 'costPerHr', 'adjustedCostPerHr', 'imageName',
+                  'networkVolumeId', 'volumeMountPath', 'lastStatusChange', 'runtime',
+                  'machine', 'interruptible'
+              ]
+              safe = {key: pod.get(key) for key in allowed if key in pod}
+              print(json.dumps({'pod': safe}, indent=2, default=str))
+          PY
