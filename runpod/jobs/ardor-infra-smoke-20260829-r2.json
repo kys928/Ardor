@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "id": "ardor-infra-smoke-20260829-r2",
+  "kind": "compute",
+  "task": {
+    "runner": "infra_smoke"
+  },
+  "gpu": {
+    "type_ids": [
+      "NVIDIA RTX PRO 4500 Blackwell"
+    ],
+    "count": 1,
+    "cloud_type": "SECURE"
+  },
+  "lifecycle": {
+    "mode": "detached"
+  }
+}
