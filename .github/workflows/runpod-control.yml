@@ -1,0 +1,111 @@
+name: Ardor RunPod Control Plane
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "runpod/jobs/*.json"
+  workflow_dispatch:
+    inputs:
+      job_path:
+        description: "Path to one RunPod job manifest"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: ardor-runpod-control-plane
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+      RUNPOD_S3_ACCESS_KEY_ID: ${{ secrets.RUNPOD_S3_ACCESS_KEY_ID }}
+      RUNPOD_S3_SECRET_ACCESS_KEY: ${{ secrets.RUNPOD_S3_SECRET_ACCESS_KEY }}
+      RUNPOD_NETWORK_VOLUME_ID: ${{ vars.RUNPOD_NETWORK_VOLUME_ID }}
+      RUNPOD_DATACENTER_ID: ${{ vars.RUNPOD_DATACENTER_ID }}
+      RUNPOD_S3_ENDPOINT: ${{ vars.RUNPOD_S3_ENDPOINT }}
+      RUNPOD_ALLOWED_GPU_TYPES: ${{ vars.RUNPOD_ALLOWED_GPU_TYPES }}
+      RUNPOD_MAX_HOURLY_USD: ${{ vars.RUNPOD_MAX_HOURLY_USD }}
+      RUNPOD_MAX_RUNTIME_MINUTES: ${{ vars.RUNPOD_MAX_RUNTIME_MINUTES }}
+      RUNPOD_MAX_READ_TEXT_BYTES: ${{ vars.RUNPOD_MAX_READ_TEXT_BYTES }}
+      RUNPOD_MAX_ARTIFACT_BYTES: ${{ vars.RUNPOD_MAX_ARTIFACT_BYTES }}
+      RUNPOD_STATUS_POLL_SECONDS: ${{ vars.RUNPOD_STATUS_POLL_SECONDS }}
+      RUNPOD_IMAGE_NAME: ${{ vars.RUNPOD_IMAGE_NAME }}
+      RUNPOD_TEMPLATE_ID: ${{ vars.RUNPOD_TEMPLATE_ID }}
+      RUNPOD_CONTAINER_REGISTRY_AUTH_ID: ${{ vars.RUNPOD_CONTAINER_REGISTRY_AUTH_ID }}
+      MANUAL_JOB_PATH: ${{ inputs.job_path }}
+
+    steps:
+      - name: Check out Ardor
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install control-plane dependency
+        run: python -m pip install --disable-pip-version-check boto3
+
+      - name: Determine requested jobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > /tmp/runpod-jobs.txt
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            printf '%s\n' "$MANUAL_JOB_PATH" > /tmp/runpod-jobs.txt
+          else
+            git diff --name-only "$GITHUB_SHA^" "$GITHUB_SHA" -- 'runpod/jobs/*.json' > /tmp/runpod-jobs.txt
+          fi
+
+          if [[ ! -s /tmp/runpod-jobs.txt ]]; then
+            echo "No RunPod job manifests found in this event."
+          else
+            echo "Jobs requested:"
+            cat /tmp/runpod-jobs.txt
+          fi
+
+      - name: Execute requested jobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r job; do
+            [[ -z "$job" ]] && continue
+            if [[ ! "$job" =~ ^runpod/jobs/[A-Za-z0-9._-]+\.json$ ]]; then
+              echo "Unsafe job path: $job" >&2
+              exit 2
+            fi
+            if [[ ! -f "$job" ]]; then
+              echo "Skipping removed job manifest: $job"
+              continue
+            fi
+            python scripts/runpod_control.py execute --job "$job"
+          done < /tmp/runpod-jobs.txt
+
+      - name: Start continuous RunPod supervisor
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run runpod-supervisor.yml --ref main
+          echo "Supervisor dispatch accepted. If no detached jobs are active, it will exit immediately."
+
+      - name: Upload downloaded S3 artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ardor-runpod-storage-downloads-${{ github.run_id }}
+          path: runpod_artifacts/
+          if-no-files-found: ignore
+          retention-days: 7
