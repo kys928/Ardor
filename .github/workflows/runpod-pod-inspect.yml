@@ -20,21 +20,63 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Inspect requested Pods
+      - name: Inspect requested Pods and registry images
         shell: bash
         run: |
           set -euo pipefail
           git diff --name-only "$GITHUB_SHA^" "$GITHUB_SHA" -- 'runpod/inspect/*.json' > /tmp/runpod-inspect.txt
           python - <<'PY'
-          import json, os, re, urllib.request
+          import json, os, re, urllib.error, urllib.parse, urllib.request
           from pathlib import Path
+
+          def check_public_ghcr(tag: str) -> None:
+              if not re.fullmatch(r'sha-[0-9a-f]{40}', tag):
+                  raise SystemExit(f'Unsafe image tag: {tag!r}')
+              scope = 'repository:kys928/ardor-runpod:pull'
+              token_url = 'https://ghcr.io/token?' + urllib.parse.urlencode({'scope': scope})
+              with urllib.request.urlopen(token_url, timeout=45) as response:
+                  token = json.load(response).get('token', '')
+              if not token:
+                  raise SystemExit('GHCR did not return an anonymous pull token')
+              req = urllib.request.Request(
+                  f'https://ghcr.io/v2/kys928/ardor-runpod/manifests/{tag}',
+                  headers={
+                      'Authorization': f'Bearer {token}',
+                      'Accept': 'application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json',
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=45) as response:
+                      manifest = json.load(response)
+                      print(json.dumps({
+                          'ghcr_public_pull': True,
+                          'image': f'ghcr.io/kys928/ardor-runpod:{tag}',
+                          'mediaType': manifest.get('mediaType'),
+                          'schemaVersion': manifest.get('schemaVersion'),
+                      }, indent=2))
+              except urllib.error.HTTPError as exc:
+                  body = exc.read().decode('utf-8', errors='replace')
+                  print(json.dumps({
+                      'ghcr_public_pull': False,
+                      'image': f'ghcr.io/kys928/ardor-runpod:{tag}',
+                      'http_status': exc.code,
+                      'body': body,
+                  }, indent=2))
+                  raise SystemExit('GHCR image is not anonymously pullable')
 
           for raw_path in Path('/tmp/runpod-inspect.txt').read_text().splitlines():
               path = Path(raw_path.strip())
               if not path.is_file():
                   continue
               spec = json.loads(path.read_text())
-              pod_id = str(spec.get('pod_id', ''))
+
+              image_tag = str(spec.get('image_tag', '')).strip()
+              if image_tag:
+                  check_public_ghcr(image_tag)
+
+              pod_id = str(spec.get('pod_id', '')).strip()
+              if not pod_id:
+                  continue
               if not re.fullmatch(r'[A-Za-z0-9_-]{4,64}', pod_id):
                   raise SystemExit(f'Unsafe pod id in {path}')
               req = urllib.request.Request(
