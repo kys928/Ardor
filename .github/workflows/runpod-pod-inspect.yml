@@ -133,11 +133,13 @@ jobs:
                       },
                   },
               }).encode('utf-8')
+              graphql_url = 'https://api.runpod.io/graphql?' + urllib.parse.urlencode({
+                  'api_key': os.environ['RUNPOD_API_KEY'],
+              })
               req = urllib.request.Request(
-                  'https://api.runpod.io/graphql',
+                  graphql_url,
                   data=payload,
                   headers={
-                      'Authorization': f"Bearer {os.environ['RUNPOD_API_KEY']}",
                       'Content-Type': 'application/json',
                       'Accept': 'application/json',
                   },
