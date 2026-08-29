@@ -3,6 +3,10 @@ name: Ardor RunPod Agent Image
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "runpod/jobs/**"
+      - "runpod/inspect/**"
+      - "runpod/terminate/**"
   pull_request:
   workflow_dispatch:
 
