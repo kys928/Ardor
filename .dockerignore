@@ -1,0 +1,16 @@
+.git
+.venv
+.workspace
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.npy
+*.npz
+.ipynb_checkpoints
+**/.ipynb_checkpoints
+runpod_artifacts
