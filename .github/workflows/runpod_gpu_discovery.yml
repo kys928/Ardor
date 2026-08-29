@@ -1,0 +1,51 @@
+name: RunPod GPU Discovery
+
+on:
+  push:
+    branches:
+      - infra/runpod-ardor-discovery
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+      RUNPOD_DATACENTER_ID: ${{ vars.RUNPOD_DATACENTER_ID }}
+    steps:
+      - name: Install runpodctl
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash <(curl -sL cli.runpod.io)
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Configure runpodctl
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.runpod"
+          "$HOME/.local/bin/runpodctl" config --apiKey "$RUNPOD_API_KEY"
+
+      - name: Show GPUs in configured datacenter
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$HOME/.local/bin/runpodctl" datacenter list > datacenters.json
+          python - <<'PY'
+          import json, os
+          with open('datacenters.json', 'r', encoding='utf-8') as f:
+              data = json.load(f)
+          target = os.environ['RUNPOD_DATACENTER_ID']
+          matches = [row for row in data if row.get('id') == target or row.get('name') == target]
+          if not matches:
+              raise SystemExit(f'Datacenter {target!r} not returned by runpodctl')
+          row = matches[0]
+          safe = {
+              'id': row.get('id'),
+              'location': row.get('location'),
+              'gpuAvailability': row.get('gpuAvailability', []),
+          }
+          print(json.dumps(safe, indent=2))
+          PY
