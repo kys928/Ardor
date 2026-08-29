@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-storage-list",
+  "kind": "storage",
+  "storage": {
+    "operation": "list",
+    "path": "Ardor/",
+    "max_items": 200
+  }
+}
