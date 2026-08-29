@@ -20,7 +20,7 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Inspect requested Pods, registry images, and datacenter capacity
+      - name: Inspect requested Pods, registry images, and GPU capacity
         shell: bash
         run: |
           set -euo pipefail
@@ -91,6 +91,72 @@ jobs:
                   raise SystemExit(f'Datacenter not returned by RunPod: {datacenter}')
               print(json.dumps({'datacenter': match}, indent=2))
 
+          def inspect_precise_availability(datacenter: str, gpu_type_ids: list[str]) -> None:
+              if not re.fullmatch(r'[A-Z]{2,3}-[A-Z]{2,3}-[0-9]+', datacenter):
+                  raise SystemExit(f'Unsafe datacenter id: {datacenter!r}')
+              if not gpu_type_ids or len(gpu_type_ids) > 32:
+                  raise SystemExit('gpu_type_ids must contain between 1 and 32 items')
+              for gpu_id in gpu_type_ids:
+                  if not re.fullmatch(r'[A-Za-z0-9 ._-]{2,128}', gpu_id):
+                      raise SystemExit(f'Unsafe gpu type id: {gpu_id!r}')
+
+              query = '''
+              query Availability($gpuTypes: GpuTypeFilter!, $priceInput: GpuLowestPriceInput) {
+                gpuTypes(input: $gpuTypes) {
+                  id
+                  displayName
+                  secureCloud
+                  maxGpuCountSecureCloud
+                  lowestPrice(input: $priceInput) {
+                    gpuName
+                    gpuTypeId
+                    uninterruptablePrice
+                    stockStatus
+                    rentedCount
+                    totalCount
+                    maxGpuCount
+                    maxUnreservedGpuCount
+                    availableGpuCounts
+                    countryCode
+                  }
+                }
+              }
+              '''
+              payload = json.dumps({
+                  'query': query,
+                  'variables': {
+                      'gpuTypes': {'ids': gpu_type_ids},
+                      'priceInput': {
+                          'dataCenterId': datacenter,
+                          'gpuCount': 1,
+                          'secureCloud': True,
+                      },
+                  },
+              }).encode('utf-8')
+              req = urllib.request.Request(
+                  'https://api.runpod.io/graphql',
+                  data=payload,
+                  headers={
+                      'Authorization': f"Bearer {os.environ['RUNPOD_API_KEY']}",
+                      'Content-Type': 'application/json',
+                      'Accept': 'application/json',
+                  },
+                  method='POST',
+              )
+              with urllib.request.urlopen(req, timeout=45) as response:
+                  result = json.load(response)
+              if result.get('errors'):
+                  raise SystemExit('RunPod GraphQL availability query failed: ' + json.dumps(result['errors']))
+              rows = result.get('data', {}).get('gpuTypes') or []
+              print(json.dumps({
+                  'precise_gpu_availability': {
+                      'datacenter': datacenter,
+                      'secureCloud': True,
+                      'gpuCount': 1,
+                      'gpuTypes': rows,
+                  }
+              }, indent=2))
+
           for raw_path in Path('/tmp/runpod-inspect.txt').read_text().splitlines():
               path = Path(raw_path.strip())
               if not path.is_file():
@@ -104,6 +170,16 @@ jobs:
               datacenter = str(spec.get('datacenter', '')).strip()
               if datacenter:
                   inspect_datacenter(datacenter)
+
+              precise = spec.get('precise_availability')
+              if precise is not None:
+                  if not isinstance(precise, dict):
+                      raise SystemExit('precise_availability must be an object')
+                  precise_dc = str(precise.get('datacenter', '')).strip()
+                  precise_gpu_ids = precise.get('gpu_type_ids')
+                  if not isinstance(precise_gpu_ids, list):
+                      raise SystemExit('precise_availability.gpu_type_ids must be a list')
+                  inspect_precise_availability(precise_dc, [str(x) for x in precise_gpu_ids])
 
               pod_id = str(spec.get('pod_id', '')).strip()
               if not pod_id:
