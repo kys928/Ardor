@@ -7,5 +7,6 @@
       "NVIDIA A100 80GB PCIe",
       "NVIDIA A100-SXM4-80GB"
     ]
-  }
+  },
+  "probe": 2
 }
