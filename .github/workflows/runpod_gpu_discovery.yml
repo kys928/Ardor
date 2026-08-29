@@ -19,20 +19,20 @@ jobs:
         run: |
           set -euo pipefail
           bash <(curl -sL cli.runpod.io)
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          command -v runpodctl
 
       - name: Configure runpodctl
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$HOME/.runpod"
-          "$HOME/.local/bin/runpodctl" config --apiKey "$RUNPOD_API_KEY"
+          runpodctl config --apiKey "$RUNPOD_API_KEY"
 
       - name: Show GPUs in configured datacenter
         shell: bash
         run: |
           set -euo pipefail
-          "$HOME/.local/bin/runpodctl" datacenter list > datacenters.json
+          runpodctl datacenter list > datacenters.json
           python - <<'PY'
           import json, os
           with open('datacenters.json', 'r', encoding='utf-8') as f:
