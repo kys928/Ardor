@@ -18,21 +18,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash <(curl -sL cli.runpod.io)
-          command -v runpodctl
+          wget --quiet https://github.com/runpod/runpodctl/releases/latest/download/runpodctl-linux-amd64 -O runpodctl
+          chmod +x runpodctl
+          ./runpodctl version
 
       - name: Configure runpodctl
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$HOME/.runpod"
-          runpodctl config --apiKey "$RUNPOD_API_KEY"
+          ./runpodctl config --apiKey "$RUNPOD_API_KEY"
 
       - name: Show GPUs in configured datacenter
         shell: bash
         run: |
           set -euo pipefail
-          runpodctl datacenter list > datacenters.json
+          ./runpodctl datacenter list > datacenters.json
           python - <<'PY'
           import json, os
           with open('datacenters.json', 'r', encoding='utf-8') as f:
