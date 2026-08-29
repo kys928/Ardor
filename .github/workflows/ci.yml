@@ -41,6 +41,10 @@ jobs:
           python -m py_compile Cerebrum/Cortex/neural_plasticity_training.py
           python -m py_compile Cerebrum/CorticalIntegration/REM.py
           python -m py_compile Praetor/GUI_Cortex.py
+          python -m py_compile Hephaestus/runpod_train_entry.py
+          python -m py_compile scripts/runpod_worker.py
+          python -m py_compile scripts/runpod_control.py
+          python -m py_compile scripts/runpod_supervisor.py
 
       - name: Run Ardor smoke test
         run: |
