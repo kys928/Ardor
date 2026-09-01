@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-infra-smoke-20260901-r3-prefix-list",
+  "kind": "storage",
+  "storage": {
+    "operation": "list",
+    "path": "ardor-control/runs/ardor-infra-smoke-20260901-r3/run-1788256198-e3991c94/",
+    "max_items": 50
+  }
+}
