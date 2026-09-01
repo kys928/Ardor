@@ -28,6 +28,7 @@ jobs:
       RUNPOD_NETWORK_VOLUME_ID: ${{ vars.RUNPOD_NETWORK_VOLUME_ID }}
       RUNPOD_DATACENTER_ID: ${{ vars.RUNPOD_DATACENTER_ID }}
       RUNPOD_S3_ENDPOINT: ${{ vars.RUNPOD_S3_ENDPOINT }}
+      RUNPOD_PROVISIONING_TIMEOUT_MINUTES: ${{ vars.RUNPOD_PROVISIONING_TIMEOUT_MINUTES }}
       TERMINATE_CONTROL_RUN_ID: ${{ inputs.terminate_control_run_id }}
 
     steps:
@@ -54,5 +55,6 @@ jobs:
             python scripts/runpod_control.py terminate-run \
               --control-run-id "$TERMINATE_CONTROL_RUN_ID"
           else
+            python scripts/runpod_provisioning_watchdog.py
             python scripts/runpod_control.py reconcile-detached
           fi
