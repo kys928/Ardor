@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-volume-root-inventory-20260901",
+  "kind": "storage",
+  "storage": {
+    "operation": "list",
+    "path": "",
+    "max_items": 1000
+  }
+}
