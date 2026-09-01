@@ -7,6 +7,7 @@ import json
 import time
 
 import runpod_control as control
+import runpod_provisioning_watchdog as provisioning_watchdog
 
 HANDOFF_EXIT_CODE = 75
 
@@ -36,6 +37,7 @@ def main() -> None:
 
     while True:
         try:
+            provisioning_watchdog.reconcile_provisioning()
             control.reconcile_detached()
             remaining = control.list_active_records()
             consecutive_errors = 0
