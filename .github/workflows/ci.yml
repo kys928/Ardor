@@ -44,6 +44,7 @@ jobs:
           python -m py_compile Hephaestus/runpod_train_entry.py
           python -m py_compile scripts/runpod_worker.py
           python -m py_compile scripts/runpod_control.py
+          python -m py_compile scripts/runpod_provisioning_watchdog.py
           python -m py_compile scripts/runpod_supervisor.py
 
       - name: Run Ardor smoke test
