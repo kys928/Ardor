@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "ardor-v14a2-old-loader-read-20260902",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/scripts/load_ardor_for_audit.py",
+    "max_bytes": 65536,
+    "encoding": "utf-8"
+  }
+}
