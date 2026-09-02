@@ -1,0 +1,40 @@
+name: v14a2 Legacy Payload Diagnostic
+
+on:
+  push:
+    paths:
+      - 'scripts/v14a2_legacy_payload_diagnostic.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      RUNPOD_S3_ACCESS_KEY_ID: ${{ secrets.RUNPOD_S3_ACCESS_KEY_ID }}
+      RUNPOD_S3_SECRET_ACCESS_KEY: ${{ secrets.RUNPOD_S3_SECRET_ACCESS_KEY }}
+      RUNPOD_NETWORK_VOLUME_ID: ${{ vars.RUNPOD_NETWORK_VOLUME_ID }}
+      RUNPOD_DATACENTER_ID: ${{ vars.RUNPOD_DATACENTER_ID }}
+      RUNPOD_S3_ENDPOINT: ${{ vars.RUNPOD_S3_ENDPOINT }}
+    steps:
+      - name: Check out Ardor
+        uses: actions/checkout@v5
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Install diagnostic dependencies
+        run: python -m pip install --disable-pip-version-check boto3 torch tokenizers numpy tqdm nltk
+      - name: Diagnose repaired v14a2 legacy payload
+        run: python scripts/v14a2_legacy_payload_diagnostic.py
+      - name: Upload diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v14a2-payload-diagnostic-${{ github.run_id }}
+          path: v14a2_payload_diagnostic.json
+          if-no-files-found: error
+          retention-days: 30
