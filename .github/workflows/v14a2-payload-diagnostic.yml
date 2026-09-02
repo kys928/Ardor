@@ -1,9 +1,10 @@
-name: v14a2 Legacy Payload Diagnostic
+name: v14a2 Checkpoint Diagnostics
 
 on:
   push:
     paths:
       - 'scripts/v14a2_legacy_payload_diagnostic.py'
+      - 'scripts/v14a2_original_checkpoint_probe.py'
       - '.github/workflows/v14a2-payload-diagnostic.yml'
   workflow_dispatch:
 
@@ -29,13 +30,17 @@ jobs:
           python-version: '3.11'
       - name: Install diagnostic dependencies
         run: python -m pip install --disable-pip-version-check boto3 torch tokenizers numpy tqdm nltk
+      - name: Probe original v14a2 checkpoint
+        run: python scripts/v14a2_original_checkpoint_probe.py
       - name: Diagnose repaired v14a2 legacy payload
         run: python scripts/v14a2_legacy_payload_diagnostic.py
-      - name: Upload diagnostic
+      - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: v14a2-payload-diagnostic-${{ github.run_id }}
-          path: v14a2_payload_diagnostic.json
+          name: v14a2-checkpoint-diagnostics-${{ github.run_id }}
+          path: |
+            v14a2_original_checkpoint_probe.json
+            v14a2_payload_diagnostic.json
           if-no-files-found: error
           retention-days: 30
