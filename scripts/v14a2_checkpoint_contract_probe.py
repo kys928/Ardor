@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Prove repaired v14a2 against the current canonical trainer's strict resume contract.
 
-This intentionally does not launch a GPU.  It uses S3 ranged reads plus
+This intentionally does not launch a GPU. It uses S3 ranged reads plus
 FakeTensorMode so the ~12 GB tensor payload is not downloaded or allocated.
 The proof still executes the same strict state-dict load operation used by the
 canonical trainer: model.load_state_dict(ckpt["model"], strict=True).
@@ -14,8 +14,13 @@ import io
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 import boto3
 import torch
@@ -114,8 +119,6 @@ def shape_tuple(x: Any) -> tuple[int, ...]:
 
 
 def build_current_canonical_model(vocab_size: int):
-    # These are the current canonical trainer defaults, and the typed worker
-    # rejects architecture overrides for them.
     stage_cfg = trainer.STAGE_PRESETS["sft"]
     ArdorConfig = trainer.import_project_config()
     cfg = ArdorConfig(
@@ -154,7 +157,6 @@ def main() -> int:
     ck_head = s3.head_object(Bucket=bucket, Key=CHECKPOINT_KEY)
     tok_head = s3.head_object(Bucket=bucket, Key=TOKENIZER_KEY)
 
-    # Use the live tokenizer artifact that the current trainer defaults to.
     tok_bytes = s3.get_object(Bucket=bucket, Key=TOKENIZER_KEY)["Body"].read()
     tok_path = Path("/tmp/ardor_tokenizer_v9.json")
     tok_path.write_bytes(tok_bytes)
@@ -253,18 +255,13 @@ def main() -> int:
                     "unexpected_keys": unexpected,
                     "shape_mismatches": shape_mismatches,
                     "dtype_mismatches": dtype_mismatches,
-                    "config_model_config": cfg.model_config() if hasattr(cfg, "model_config") else None,
                 }
             )
 
-            # This is the decisive operation: execute the same literal strict
-            # load used by the canonical trainer, against the repaired object.
             strict_result = model.load_state_dict(actual, strict=True)
             proof["strict_model_contract"]["strict_load_ok"] = True
             proof["strict_model_contract"]["strict_result"] = str(strict_result)
 
-            # The trainer only attempts optimizer restoration when the canonical
-            # top-level "optimizer" key exists.  Test that exact behavior too.
             if "optimizer" in ckpt:
                 optimizer = torch.optim.AdamW(
                     [p for p in model.parameters() if p.requires_grad],
