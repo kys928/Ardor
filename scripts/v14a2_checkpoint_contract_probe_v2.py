@@ -32,6 +32,11 @@ def main() -> int:
     ap.add_argument("--output", type=Path, default=Path("checkpoint_contract_proof.json"))
     args = ap.parse_args()
 
+    # Match Hephaestus/runpod_train_entry.py: redirect only the trainer's
+    # project-code import root to the checked-out repository. This does not
+    # alter checkpoint, tokenizer, architecture, or resume semantics.
+    trainer.ARDOR_ROOT = REPO_ROOT
+
     client = s3_client()
     volume = bucket()
     ck_head = client.head_object(Bucket=volume, Key=CHECKPOINT_KEY)
