@@ -28,6 +28,20 @@ from scripts.v14a2_checkpoint_contract_probe import (
 )
 
 
+def jsonable(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(k): jsonable(v) for k, v in value.items() if not isinstance(v, torch.Tensor)}
+    if isinstance(value, (list, tuple)):
+        return [jsonable(v) for v in value if not isinstance(v, torch.Tensor)]
+    if hasattr(value, "__dict__"):
+        return {str(k): jsonable(v) for k, v in vars(value).items() if not isinstance(v, torch.Tensor)}
+    return repr(value)
+
+
 def main() -> int:
     trainer.ARDOR_ROOT = REPO_ROOT
     client = s3_client()
@@ -51,6 +65,14 @@ def main() -> int:
             ckpt = torch.load(reader, map_location="cpu", weights_only=False)
             out["top_level_keys"] = sorted(str(k) for k in ckpt)
             out["canonical_direct_compatible"] = "model" in ckpt
+            out["checkpoint_metadata"] = {
+                "args": jsonable(ckpt.get("args")),
+                "kind": jsonable(ckpt.get("kind")),
+                "trainer": jsonable(ckpt.get("trainer")),
+                "update": jsonable(ckpt.get("update")),
+                "repair_note": jsonable(ckpt.get("repair_note")),
+                "repaired_missing_keys": jsonable(ckpt.get("repaired_missing_keys")),
+            }
             legacy = ckpt.get("model_state_dict")
             if not isinstance(legacy, dict):
                 raise KeyError("model_state_dict missing or not a mapping")
