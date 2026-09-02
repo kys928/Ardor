@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "ardor-volume-conversations-inventory-20260902",
+  "kind": "storage",
+  "storage": {
+    "operation": "list",
+    "path": "Dataset/Conversations/",
+    "max_items": 1000,
+    "shallow": true
+  }
+}
