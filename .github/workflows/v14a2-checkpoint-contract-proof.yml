@@ -3,7 +3,7 @@ name: v14a2 Checkpoint Contract Proof
 on:
   push:
     paths:
-      - 'scripts/v14a2_checkpoint_contract_probe.py'
+      - 'scripts/v14a2_checkpoint_contract_probe_v2.py'
   workflow_dispatch:
 
 permissions:
@@ -34,7 +34,7 @@ jobs:
 
       - name: Prove repaired v14a2 strict checkpoint contract
         run: |
-          python scripts/v14a2_checkpoint_contract_probe.py --output checkpoint_contract_proof.json
+          python scripts/v14a2_checkpoint_contract_probe_v2.py --output checkpoint_contract_proof.json
 
       - name: Upload proof
         if: always()
