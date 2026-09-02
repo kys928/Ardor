@@ -5,6 +5,7 @@ on:
     paths:
       - 'scripts/v14a2_legacy_payload_diagnostic.py'
       - 'scripts/v14a2_original_checkpoint_probe.py'
+      - 'scripts/v14a2_base_checkpoint_probe.py'
       - '.github/workflows/v14a2-payload-diagnostic.yml'
   workflow_dispatch:
 
@@ -32,6 +33,8 @@ jobs:
         run: python -m pip install --disable-pip-version-check boto3 torch tokenizers numpy tqdm nltk
       - name: Probe original v14a2 checkpoint
         run: python scripts/v14a2_original_checkpoint_probe.py
+      - name: Probe exact v13b base checkpoint
+        run: python scripts/v14a2_base_checkpoint_probe.py
       - name: Diagnose repaired v14a2 legacy payload
         run: python scripts/v14a2_legacy_payload_diagnostic.py
       - name: Upload diagnostics
@@ -41,6 +44,7 @@ jobs:
           name: v14a2-checkpoint-diagnostics-${{ github.run_id }}
           path: |
             v14a2_original_checkpoint_probe.json
+            v14a2_base_checkpoint_probe.json
             v14a2_payload_diagnostic.json
           if-no-files-found: error
           retention-days: 30
