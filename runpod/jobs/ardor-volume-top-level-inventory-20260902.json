@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "ardor-volume-top-level-inventory-20260902",
+  "kind": "storage",
+  "storage": {
+    "operation": "list",
+    "path": "",
+    "max_items": 1000,
+    "shallow": true
+  }
+}
