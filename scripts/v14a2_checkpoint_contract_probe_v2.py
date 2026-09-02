@@ -4,13 +4,22 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import traceback
 from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+# The production trainer intentionally points compiler caches at /workspace.
+# GitHub-hosted proof runners do not own that root. Redirect only disposable
+# compiler/runtime caches; this does not alter model/checkpoint semantics.
+os.environ["TORCHINDUCTOR_CACHE_DIR"] = "/tmp/ardor_torchinductor_cache"
+os.environ["TRITON_CACHE_DIR"] = "/tmp/ardor_triton_cache"
+os.environ["PYTHONPATH"] = str(REPO_ROOT)
 
 import torch
 from torch._subclasses.fake_tensor import FakeTensorMode
@@ -49,7 +58,7 @@ def main() -> int:
 
     reader = S3RangeReader(client, volume, CHECKPOINT_KEY, int(ck_head["ContentLength"]))
     proof: dict[str, Any] = {
-        "proof_version": 2,
+        "proof_version": 3,
         "repo_sha": current_sha(),
         "checkpoint": {
             "key": CHECKPOINT_KEY,
@@ -156,7 +165,8 @@ def main() -> int:
             proof["serialization"]["meta_type"] = type(meta).__name__
             proof["serialization"]["meta_keys"] = sorted(str(k) for k in meta) if isinstance(meta, dict) else []
             proof["passed"] = (
-                not missing
+                proof["serialization"].get("has_model_key") is True
+                and not missing
                 and not unexpected
                 and not shape_mismatches
                 and proof["strict_model_contract"].get("strict_load_ok") is True
@@ -167,6 +177,7 @@ def main() -> int:
             )
     except Exception as exc:
         proof["error"] = f"{type(exc).__name__}: {exc}"
+        proof["traceback"] = traceback.format_exc()
         proof["passed"] = False
     finally:
         proof["s3_range_io"] = {
