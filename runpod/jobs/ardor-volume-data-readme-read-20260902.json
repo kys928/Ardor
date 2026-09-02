@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-volume-data-readme-read-20260902",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/data/README.md",
+    "max_bytes": 262144
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-volume-sft-download-20260902",
+  "kind": "storage",
+  "storage": {
+    "operation": "download",
+    "path": "Ardor/training/data/ardor_sft.jsonl",
+    "max_bytes": 41943040
+  }
+}

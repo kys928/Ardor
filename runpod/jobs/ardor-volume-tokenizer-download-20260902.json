@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-volume-tokenizer-download-20260902",
+  "kind": "storage",
+  "storage": {
+    "operation": "download",
+    "path": "Ardor/tokenizer_v9.json",
+    "max_bytes": 8388608
+  }
+}

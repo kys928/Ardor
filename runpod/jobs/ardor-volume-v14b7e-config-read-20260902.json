@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-volume-v14b7e-config-read-20260902",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/runs/sft_v14b7e_staged_memory_bank_from_v14a2_u275/run_config.json",
+    "max_bytes": 262144
+  }
+}
