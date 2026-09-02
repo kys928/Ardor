@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-volume-training-scripts-inventory-20260902",
+  "kind": "storage",
+  "storage": {
+    "operation": "list",
+    "path": "Ardor/training/scripts/",
+    "max_items": 1000
+  }
+}
