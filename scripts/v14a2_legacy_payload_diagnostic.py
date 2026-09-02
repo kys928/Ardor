@@ -10,11 +10,13 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+CORTEX_ROOT = REPO_ROOT / "Cerebrum" / "Cortex"
+for path in (str(REPO_ROOT), str(CORTEX_ROOT)):
+    if path not in sys.path:
+        sys.path.insert(0, path)
 os.environ["TORCHINDUCTOR_CACHE_DIR"] = "/tmp/ardor_torchinductor_cache"
 os.environ["TRITON_CACHE_DIR"] = "/tmp/ardor_triton_cache"
-os.environ["PYTHONPATH"] = str(REPO_ROOT)
+os.environ["PYTHONPATH"] = os.pathsep.join((str(REPO_ROOT), str(CORTEX_ROOT)))
 
 import torch
 from torch._subclasses.fake_tensor import FakeTensorMode
@@ -95,7 +97,7 @@ def main() -> int:
                     }
             else:
                 out["legacy_payload_optimizer_diagnostic"] = {"present": False}
-    except Exception as exc:
+    except BaseException as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
         out["traceback"] = traceback.format_exc()
     finally:
