@@ -30,7 +30,7 @@ jobs:
 
       - name: Install proof dependencies
         run: |
-          python -m pip install --disable-pip-version-check boto3 torch tokenizers
+          python -m pip install --disable-pip-version-check boto3 torch tokenizers numpy tqdm nltk
 
       - name: Prove repaired v14a2 strict checkpoint contract
         run: |
