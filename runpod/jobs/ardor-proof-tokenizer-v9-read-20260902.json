@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-proof-tokenizer-v9-read-20260902",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/tokenizer_v9.json",
+    "max_bytes": 1048576
+  }
+}
