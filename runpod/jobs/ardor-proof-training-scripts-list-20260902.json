@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "ardor-proof-training-scripts-list-20260902",
+  "kind": "storage",
+  "storage": {
+    "operation": "list",
+    "prefix": "Ardor/training/scripts",
+    "shallow": true,
+    "max_keys": 1000
+  }
+}
