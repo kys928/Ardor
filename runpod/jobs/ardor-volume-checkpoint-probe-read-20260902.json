@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-volume-checkpoint-probe-read-20260902",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/head_probe_ckpt_last_2.json",
+    "max_bytes": 262144
+  }
+}

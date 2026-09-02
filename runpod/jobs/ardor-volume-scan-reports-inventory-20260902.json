@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-volume-scan-reports-inventory-20260902",
+  "kind": "storage",
+  "storage": {
+    "operation": "list",
+    "path": "_scan_reports/",
+    "max_items": 1000
+  }
+}

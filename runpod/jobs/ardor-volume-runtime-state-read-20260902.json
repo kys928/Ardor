@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-volume-runtime-state-read-20260902",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "ArdorRuntime/runtime/runtime_state.json",
+    "max_bytes": 262144
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-volume-training-data-inventory-20260902",
+  "kind": "storage",
+  "storage": {
+    "operation": "list",
+    "path": "Ardor/training/data/",
+    "max_items": 1000
+  }
+}
