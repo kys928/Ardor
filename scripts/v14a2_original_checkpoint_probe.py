@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+# GitHub-hosted runners cannot write /workspace; keep torch/dynamo caches local.
+os.environ["TORCHINDUCTOR_CACHE_DIR"] = "/tmp/ardor_torchinductor_cache"
+os.environ["TRITON_CACHE_DIR"] = "/tmp/ardor_triton_cache"
+os.environ["TORCH_HOME"] = "/tmp/ardor_torch_home"
 
 import torch
 from torch._subclasses.fake_tensor import FakeTensorMode
