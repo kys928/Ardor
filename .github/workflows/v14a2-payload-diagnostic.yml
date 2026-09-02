@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'scripts/v14a2_legacy_payload_diagnostic.py'
+      - '.github/workflows/v14a2-payload-diagnostic.yml'
   workflow_dispatch:
 
 permissions:
