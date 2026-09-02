@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "id": "ardor-verify-training-prefixes-20260902",
+  "kind": "storage",
+  "storage": {"operation": "list", "path": "Ardor/training/", "shallow": true, "max_items": 1000}
+}
