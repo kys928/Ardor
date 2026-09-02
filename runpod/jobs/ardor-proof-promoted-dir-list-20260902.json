@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "ardor-proof-promoted-dir-list-20260902",
+  "kind": "storage",
+  "storage": {
+    "operation": "list",
+    "path": "Ardor/training/runs/v14_promoted_candidates/",
+    "shallow": false,
+    "max_items": 1000
+  }
+}
