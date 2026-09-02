@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-proof-v14a2-repair-loader-20260902",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/scripts/load_ardor_v14a2_compat.py",
+    "max_bytes": 1048576
+  }
+}
