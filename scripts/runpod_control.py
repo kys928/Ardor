@@ -207,7 +207,17 @@ def storage_job(job: dict[str, Any]) -> None:
 
     if operation == "list":
         max_items = min(max(int(spec.get("max_items", 200)), 1), 1000)
-        response = client.list_objects_v2(Bucket=bucket(), Prefix=key, MaxKeys=max_items)
+        shallow = spec.get("shallow", False)
+        if not isinstance(shallow, bool):
+            raise ValueError("storage.shallow must be a boolean when present")
+        list_args: dict[str, Any] = {
+            "Bucket": bucket(),
+            "Prefix": key,
+            "MaxKeys": max_items,
+        }
+        if shallow:
+            list_args["Delimiter"] = "/"
+        response = client.list_objects_v2(**list_args)
         entries = [
             {
                 "key": item.get("Key"),
@@ -221,8 +231,21 @@ def storage_job(job: dict[str, Any]) -> None:
             }
             for item in response.get("Contents", [])
         ]
+        common_prefixes = [
+            item.get("Prefix")
+            for item in response.get("CommonPrefixes", [])
+            if item.get("Prefix")
+        ]
         print(json.dumps(
-            {"job_id": job["id"], "operation": operation, "entries": entries},
+            {
+                "job_id": job["id"],
+                "operation": operation,
+                "prefix": key,
+                "shallow": shallow,
+                "is_truncated": bool(response.get("IsTruncated", False)),
+                "common_prefixes": common_prefixes,
+                "entries": entries,
+            },
             indent=2,
         ))
         return
