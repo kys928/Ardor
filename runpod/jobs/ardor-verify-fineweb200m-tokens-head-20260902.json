@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "id": "ardor-verify-fineweb200m-tokens-head-20260902",
+  "kind": "storage",
+  "storage": {
+    "operation": "head",
+    "path": "/workspace/Ardor/fineweb_dataset_200M/tokens.bin"
+  }
+}

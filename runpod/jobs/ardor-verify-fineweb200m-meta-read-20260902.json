@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-verify-fineweb200m-meta-read-20260902",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "/workspace/Ardor/fineweb_dataset_200M/meta.json",
+    "max_bytes": 1048576
+  }
+}

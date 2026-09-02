@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "ardor-verify-fineweb200m-list-20260902",
+  "kind": "storage",
+  "storage": {
+    "operation": "list",
+    "path": "/workspace/Ardor/fineweb_dataset_200M/",
+    "shallow": true,
+    "max_items": 1000
+  }
+}

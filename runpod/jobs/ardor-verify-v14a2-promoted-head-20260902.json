@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "id": "ardor-verify-v14a2-promoted-head-20260902",
+  "kind": "storage",
+  "storage": {
+    "operation": "head",
+    "path": "/workspace/Ardor/training/runs/v14_promoted_candidates/v14a2_local_anti_loop_margin_best_u600.pt"
+  }
+}
