@@ -18,10 +18,10 @@ class SelfAttention(nn.Module):
 
         self.heads = heads
         self.head_dim = hidden_dim // heads
-        assert self.head_dim % 2 == 0, "RoPE requires even head_dim"
-
         self.use_rope = bool(use_rope)
         self.rope_theta = float(rope_theta)
+        if self.use_rope:
+            assert self.head_dim % 2 == 0, "RoPE requires even head_dim"
 
         # names must match checkpoint: ...attn.{q,k,v,out}.*
         self.q = nn.Linear(hidden_dim, hidden_dim, bias=True)
@@ -34,7 +34,12 @@ class SelfAttention(nn.Module):
         self.attn_dropout_p = float(attn_dropout)
 
         # Derived, non-learned state: intentionally absent from state_dict.
-        self.register_buffer("_rope_inv_freq", self._build_inv_freq(), persistent=False)
+        rope_inv_freq = (
+            self._build_inv_freq()
+            if self.use_rope
+            else torch.empty(0, dtype=torch.float32)
+        )
+        self.register_buffer("_rope_inv_freq", rope_inv_freq, persistent=False)
 
     def _build_inv_freq(self) -> torch.Tensor:
         half_dim = self.head_dim // 2
