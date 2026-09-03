@@ -609,6 +609,79 @@ def maybe_strip_compile_prefix(sd: Dict[str, torch.Tensor]) -> Dict[str, torch.T
             out[k] = v
     return out
 
+def resolve_model_config(
+    ArdorConfig: Any,
+    *,
+    args: argparse.Namespace,
+    cfg_stage: StageConfig,
+    vocab_size: int,
+    special_ids: Dict[str, Optional[int]],
+    resume_meta: Dict[str, Any],
+) -> Any:
+    declared = resume_meta.get("model_config")
+    if declared is None:
+        cfg = ArdorConfig(
+            vocab_size=vocab_size,
+            hidden_size=args.hidden_size,
+            n_layers=args.n_layers,
+            n_heads=args.n_heads,
+            ff_mult=args.ff_mult,
+            max_len=args.ctx,
+            dropout=cfg_stage.dropout,
+            attn_dropout=cfg_stage.dropout,
+            resid_dropout=cfg_stage.dropout,
+            use_rope=True,
+            rope_theta=10000.0,
+        )
+        cfg.validate()
+        return cfg
+
+    if not isinstance(declared, dict):
+        raise SystemExit("Resume checkpoint meta.model_config must be an object.")
+    cfg = ArdorConfig.from_dict(declared)
+
+    cli_contract = {
+        "hidden_size": int(args.hidden_size),
+        "n_layers": int(args.n_layers),
+        "n_heads": int(args.n_heads),
+        "ff_mult": int(args.ff_mult),
+        "max_len": int(args.ctx),
+    }
+    checkpoint_contract = {
+        "hidden_size": int(cfg.hidden_size),
+        "n_layers": int(cfg.n_layers),
+        "n_heads": int(cfg.n_heads),
+        "ff_mult": int(cfg.ff_mult),
+        "max_len": int(cfg.max_len),
+    }
+    conflicts = {
+        name: {"cli": cli_contract[name], "checkpoint": checkpoint_contract[name]}
+        for name in cli_contract
+        if cli_contract[name] != checkpoint_contract[name]
+    }
+    if conflicts:
+        raise SystemExit(
+            "Resume checkpoint model_config conflicts with canonical architecture CLI: "
+            + json.dumps(conflicts, sort_keys=True)
+        )
+    if int(cfg.vocab_size) != int(vocab_size):
+        raise SystemExit(
+            f"Resume checkpoint vocab_size={cfg.vocab_size} does not match tokenizer vocab_size={vocab_size}."
+        )
+
+    checkpoint_special_ids = resume_meta.get("special_ids")
+    if checkpoint_special_ids is not None:
+        if not isinstance(checkpoint_special_ids, dict):
+            raise SystemExit("Resume checkpoint meta.special_ids must be an object when present.")
+        normalized = {key: checkpoint_special_ids.get(key) for key in special_ids}
+        if normalized != special_ids:
+            raise SystemExit(
+                "Resume checkpoint special-token ids do not match the selected tokenizer: "
+                + json.dumps({"checkpoint": normalized, "tokenizer": special_ids}, sort_keys=True)
+            )
+    return cfg
+
+
 # -------------------------
 # Main
 # -------------------------
@@ -632,21 +705,34 @@ def main() -> None:
     vocab_size = tokenizer_vocab_size(args.tokenizer)
     cfg_stage = STAGE_PRESETS[args.stage]
 
+    resume_ckpt: Optional[Dict[str, Any]] = None
+    resume_meta: Dict[str, Any] = {}
+    if args.resume is not None:
+        if not args.resume.exists():
+            raise SystemExit(f"Missing resume checkpoint: {args.resume}")
+        loaded = torch.load(args.resume, map_location="cpu")
+        if not isinstance(loaded, dict):
+            raise SystemExit("Resume checkpoint must be a dictionary.")
+        resume_ckpt = loaded
+        raw_meta = loaded.get("meta", {})
+        if raw_meta is None:
+            raw_meta = {}
+        if not isinstance(raw_meta, dict):
+            raise SystemExit("Resume checkpoint meta must be an object.")
+        resume_meta = raw_meta
+
     ArdorConfig = import_project_config()
-    model_cfg = ArdorConfig(
+    model_cfg = resolve_model_config(
+        ArdorConfig,
+        args=args,
+        cfg_stage=cfg_stage,
         vocab_size=vocab_size,
-        hidden_size=args.hidden_size,
-        n_layers=args.n_layers,
-        n_heads=args.n_heads,
-        ff_mult=args.ff_mult,
-        max_len=args.ctx,
-        dropout=cfg_stage.dropout,
-        attn_dropout=cfg_stage.dropout,
-        resid_dropout=cfg_stage.dropout,
-        use_rope=True,
-        rope_theta=10000.0,
+        special_ids=sp,
+        resume_meta=resume_meta,
     )
-    model_cfg.validate()
+    if resume_ckpt is not None and "model_config" not in resume_meta:
+        print(f"[{now_str()}] [resume] checkpoint has no meta.model_config; using canonical CLI/stage model config")
+
 
     dec_cls = import_project_decoder()
     model = build_model(dec_cls, model_cfg).to(device)
@@ -678,16 +764,15 @@ def main() -> None:
     global_step = 0
     tokens_seen = 0
     best_val = float("inf")
-    if args.resume is not None and args.resume.exists():
-        ckpt = torch.load(args.resume, map_location="cpu")
-        model.load_state_dict(ckpt["model"], strict=True)
-        if "optimizer" in ckpt:
-            optimizer.load_state_dict(ckpt["optimizer"])
-        meta = ckpt.get("meta", {})
-        global_step = int(meta.get("step", 0))
-        tokens_seen = int(meta.get("tokens_seen", 0))
-        best_val = float(meta.get("best_val", best_val))
+    if resume_ckpt is not None:
+        model.load_state_dict(resume_ckpt["model"], strict=True)
+        if "optimizer" in resume_ckpt:
+            optimizer.load_state_dict(resume_ckpt["optimizer"])
+        global_step = int(resume_meta.get("step", 0))
+        tokens_seen = int(resume_meta.get("tokens_seen", 0))
+        best_val = float(resume_meta.get("best_val", best_val))
         print(f"[{now_str()}] [resume] ckpt={args.resume} step={global_step} tokens_seen={tokens_seen:,}")
+
 
     train_batcher = None
     val_batcher = None
@@ -875,6 +960,7 @@ def main() -> None:
                     "stage": cfg_stage.name,
                     "best_val": best_val,
                     "special_ids": sp,
+                    "model_config": asdict(model_cfg),
                 },
             }
             safe_torch_save(state, ckpt_last)
@@ -887,6 +973,7 @@ def main() -> None:
                     "stage": cfg_stage.name,
                     "best_val": best_val,
                     "special_ids": sp,
+                    "model_config": asdict(model_cfg),
                 },
             }
             safe_torch_save(full, ckpt_latest)
@@ -909,6 +996,7 @@ def main() -> None:
             "stage": cfg_stage.name,
             "best_val": best_val,
             "special_ids": sp,
+            "model_config": asdict(model_cfg),
         },
     }
     safe_torch_save(final, ckpt_final)
