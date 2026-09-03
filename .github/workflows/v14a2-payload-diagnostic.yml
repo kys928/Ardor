@@ -10,6 +10,7 @@ on:
       - 'scripts/v14a2_original_checkpoint_probe.py'
       - 'scripts/v14a2_base_checkpoint_probe.py'
       - 'scripts/v14a2_canonical_source_contract_probe.py'
+      - 'scripts/v14a2_tokenizer_contract_probe.py'
       - 'scripts/verify_historical_rope_restoration.py'
       - '.github/workflows/v14a2-payload-diagnostic.yml'
   workflow_dispatch:
@@ -36,6 +37,8 @@ jobs:
           python-version: '3.11'
       - name: Install diagnostic dependencies
         run: python -m pip install --disable-pip-version-check boto3 torch tokenizers numpy tqdm nltk
+      - name: Verify live tokenizer contract
+        run: python scripts/v14a2_tokenizer_contract_probe.py
       - name: Prove restored RoPE matches historical implementation
         run: python scripts/verify_historical_rope_restoration.py
       - name: Probe original v14a2 checkpoint
@@ -52,6 +55,7 @@ jobs:
         with:
           name: v14a2-checkpoint-diagnostics-${{ github.run_id }}
           path: |
+            v14a2_tokenizer_contract.json
             v14a2_original_checkpoint_probe.json
             v14a2_base_checkpoint_probe.json
             v14a2_canonical_source_contract.json
