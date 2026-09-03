@@ -12,5 +12,6 @@
   "lifecycle": {
     "mode": "detached"
   },
+  "trigger_attempt": 2,
   "purpose": "Trigger the fixed-purpose v14a2 canonical migration launcher. Source, destination, image and GPU candidates are hard-coded and revalidated by the launcher/worker."
 }
