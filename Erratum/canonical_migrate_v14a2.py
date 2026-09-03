@@ -360,7 +360,7 @@ def migrate(run_dir: Path) -> dict[str, Any]:
         tmp.unlink()
     DESTINATION.parent.mkdir(parents=True, exist_ok=True)
     torch.save(canonical, tmp)
-    with tmp.open("rb") as handle:
+    with tmp.open("rb+") as handle:
         os.fsync(handle.fileno())
     os.replace(tmp, DESTINATION)
 
