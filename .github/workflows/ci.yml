@@ -42,10 +42,15 @@ jobs:
           python -m py_compile Cerebrum/CorticalIntegration/REM.py
           python -m py_compile Praetor/GUI_Cortex.py
           python -m py_compile Hephaestus/runpod_train_entry.py
+          python -m py_compile Erratum/canonical_migrate_v14a2.py
+          python -m py_compile Erratum/launch_v14a2_canonical_migration.py
           python -m py_compile scripts/runpod_worker.py
           python -m py_compile scripts/runpod_control.py
           python -m py_compile scripts/runpod_provisioning_watchdog.py
           python -m py_compile scripts/runpod_supervisor.py
+          python -m py_compile scripts/v14a2_tokenizer_contract_probe.py
+          python -m py_compile scripts/v14a2_canonical_source_contract_probe.py
+          python -m py_compile scripts/verify_historical_rope_restoration.py
 
       - name: Run Ardor smoke test
         run: |
