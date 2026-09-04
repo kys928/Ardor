@@ -32,6 +32,7 @@ PATH_ARGS = {
     "gen_probe_prompts": "--gen_probe_prompts",
 }
 FORBIDDEN_ARCH_OVERRIDES = {"hidden_size", "n_layers", "n_heads", "ff_mult", "ctx"}
+ALLOWED_RUNNERS = {"ardor_promptgen", "infra_smoke", "canonical_migrate_v14a2"}
 
 
 def utc_now() -> str:
@@ -187,6 +188,16 @@ def infra_smoke(run_dir: Path) -> dict[str, Any]:
     return result
 
 
+def canonical_migrate_v14a2(run_dir: Path) -> dict[str, Any]:
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    if str(CORTEX_ROOT) not in sys.path:
+        sys.path.insert(0, str(CORTEX_ROOT))
+    from Erratum.canonical_migrate_v14a2 import migrate
+
+    return migrate(run_dir)
+
+
 def build_promptgen_command(job: dict[str, Any], job_id: str, control_run_id: str) -> list[str]:
     task = job.get("task")
     if not isinstance(task, dict):
@@ -274,8 +285,15 @@ def run() -> int:
     if not isinstance(task, dict):
         raise ValueError("job.task must be an object")
     runner = str(task.get("runner", ""))
-    if runner not in {"ardor_promptgen", "infra_smoke"}:
-        raise ValueError("Only task.runner='ardor_promptgen' or 'infra_smoke' is enabled")
+    if runner not in ALLOWED_RUNNERS:
+        raise ValueError(f"Unsupported task.runner: {runner!r}")
+    if runner == "canonical_migrate_v14a2":
+        extra = sorted(set(task) - {"runner"})
+        if extra:
+            raise ValueError(
+                "canonical_migrate_v14a2 is fixed-purpose and accepts no task fields beyond runner; "
+                f"unexpected: {extra}"
+            )
 
     run_dir = CONTROL_ROOT / job_id / control_run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -283,11 +301,13 @@ def run() -> int:
     log_path = run_dir / "worker.log"
     atomic_json(run_dir / "job.json", job)
 
-    command = (
-        ["internal:infra_smoke"]
-        if runner == "infra_smoke"
-        else build_promptgen_command(job, job_id, control_run_id)
-    )
+    if runner == "infra_smoke":
+        command = ["internal:infra_smoke"]
+    elif runner == "canonical_migrate_v14a2":
+        command = ["internal:canonical_migrate_v14a2"]
+    else:
+        command = build_promptgen_command(job, job_id, control_run_id)
+
     started = {
         "schema_version": 1,
         "job_id": job_id,
@@ -311,8 +331,18 @@ def run() -> int:
                 encoding="utf-8",
             )
             returncode = 0
+            result_path = run_dir / "infra_smoke.json"
+        elif runner == "canonical_migrate_v14a2":
+            result = canonical_migrate_v14a2(run_dir)
+            log_path.write_text(
+                json.dumps(result, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            returncode = 0 if result.get("passed") else 1
+            result_path = run_dir / "canonical_migration.json"
         else:
             returncode = run_subprocess(command, log_path)
+            result_path = None
 
         completed = {
             **started,
@@ -320,11 +350,7 @@ def run() -> int:
             "completed_at": utc_now(),
             "returncode": returncode,
             "log_path": str(log_path),
-            "result_path": (
-                str(run_dir / "infra_smoke.json")
-                if runner == "infra_smoke"
-                else None
-            ),
+            "result_path": str(result_path) if result_path is not None else None,
         }
         atomic_json(status_path, completed)
         return returncode

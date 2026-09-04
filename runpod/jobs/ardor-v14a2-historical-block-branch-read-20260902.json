@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "ardor-v14a2-historical-block-branch-read-20260902",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/Cerebrum/Cortex/fronto_parietal_loop.py",
+    "max_bytes": 65536,
+    "encoding": "utf-8"
+  }
+}

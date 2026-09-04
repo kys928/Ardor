@@ -1,0 +1,50 @@
+name: Ardor Canonical Migration Image
+
+on:
+  push:
+    branches: [fix/canonical-checkpoint-migration]
+    paths:
+      - 'Cerebrum/Cortex/broca_decoder.py'
+      - 'Cerebrum/Cortex/fronto_parietal_loop.py'
+      - 'Cerebrum/Cortex/dorsolateral_prefrontal_cortex.py'
+      - 'Erratum/canonical_migrate_v14a2.py'
+      - 'scripts/runpod_worker.py'
+      - 'scripts/runpod_control.py'
+      - 'docker/runpod-agent.Dockerfile'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/build-runpod-migration-image.yml'
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ardor-canonical-migration-image
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Ardor
+        uses: actions/checkout@v5
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish temporary migration image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/runpod-agent.Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/ardor-runpod:canonical-migration
+            ghcr.io/${{ github.repository_owner }}/ardor-runpod:migration-sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

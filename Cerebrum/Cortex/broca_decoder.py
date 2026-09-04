@@ -37,7 +37,14 @@ class ArdorDecoder(nn.Module):
         self.drop = nn.Dropout(self.dropout_p)
 
         self.blocks = nn.ModuleList([
-            TransformerBlock(self.hidden_size, self.n_heads, ff_hidden_mult=self.ff_mult, dropout=self.dropout_p)
+            TransformerBlock(
+                self.hidden_size,
+                self.n_heads,
+                ff_hidden_mult=self.ff_mult,
+                dropout=self.dropout_p,
+                use_rope=self.use_rope,
+                rope_theta=self.rope_theta,
+            )
             for _ in range(self.num_layers)
         ])
         self.layers = self.blocks

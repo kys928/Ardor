@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "id": "v14a2-canonical-migration-20260903",
+  "kind": "compute",
+  "task": {
+    "runner": "canonical_migrate_v14a2"
+  },
+  "gpu": {
+    "count": 1,
+    "cloud_type": "SECURE"
+  },
+  "lifecycle": {
+    "mode": "detached"
+  },
+  "trigger_attempt": 2,
+  "purpose": "Trigger the fixed-purpose v14a2 canonical migration launcher. Source, destination, image and GPU candidates are hard-coded and revalidated by the launcher/worker."
+}
