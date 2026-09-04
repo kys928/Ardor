@@ -35,10 +35,10 @@ from scripts.runpod_control import (
     utc_now,
 )
 
-JOB_ID = "v14a2-canonical-eval-cu128-20260904"
+JOB_ID = "v14a2-canonical-eval-cu128-r2-20260904"
 RUNNER = "canonical_eval_v14a2"
 EXPECTED_IMAGE = "ghcr.io/kys928/ardor-runpod:latest"
-AUDIT_CODE_SHA = "42db9328223b3d04f1b3199a65483c33c7953663"
+AUDIT_CODE_SHA = "5e0dc583f06cfecbbd15546955cf91bccf88d87d"
 TORCH_VERSION = "2.11.0"
 TORCH_INDEX = "https://download.pytorch.org/whl/cu128"
 CANDIDATE_GPUS = ["NVIDIA GeForce RTX 4090"]
