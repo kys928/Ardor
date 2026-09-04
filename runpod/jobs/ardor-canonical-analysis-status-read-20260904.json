@@ -4,7 +4,7 @@
   "kind": "storage",
   "storage": {
     "operation": "read_text",
-    "path": "ardor-control/runs/v14a2-canonical-analysis-explicit-contract-20260904/run-1788525985-8456cad7/status.json",
+    "path": "ardor-control/runs/v14a2-canonical-analysis-explicit-contract-rtxpro4500-20260904/run-1788529851-ff32d843/status.json",
     "max_bytes": 262144
   }
 }
