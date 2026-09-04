@@ -2,7 +2,9 @@
 """Launch the single canonical v14a2 behavioral evaluation as a detached RunPod job.
 
 This launcher is intentionally one-purpose. It accepts no checkpoint path, evaluator,
-image, GPU count, or model override from user input.
+image, GPU count, or model override from user input. The pod executes an exact pinned
+Ardor code commit so the scientific architecture/evaluator contract cannot drift with
+an image tag.
 """
 from __future__ import annotations
 
@@ -34,6 +36,7 @@ from scripts.runpod_control import (
 JOB_ID = "v14a2-canonical-eval-20260904"
 RUNNER = "canonical_eval_v14a2"
 EXPECTED_IMAGE = "ghcr.io/kys928/ardor-runpod:latest"
+AUDIT_CODE_SHA = "42db9328223b3d04f1b3199a65483c33c7953663"
 CANDIDATE_GPUS = [
     "NVIDIA GeForce RTX 5090",
     "NVIDIA GeForce RTX 4090",
@@ -75,6 +78,17 @@ def main() -> int:
         json.dumps(job, sort_keys=True).encode("utf-8")
     ).decode("ascii")
 
+    fixed_start = (
+        "rm -rf /tmp/ArdorAudit && "
+        "git init /tmp/ArdorAudit && "
+        "cd /tmp/ArdorAudit && "
+        "git remote add origin https://github.com/kys928/Ardor.git && "
+        f"git fetch --depth 1 origin {AUDIT_CODE_SHA} && "
+        "git checkout --detach FETCH_HEAD && "
+        f"test \"$(git rev-parse HEAD)\" = \"{AUDIT_CODE_SHA}\" && "
+        "/opt/Ardor/.venv/bin/python scripts/runpod_worker.py"
+    )
+
     payload: dict[str, Any] = {
         "name": f"ardor-{JOB_ID}"[:191],
         "computeType": "GPU",
@@ -88,12 +102,11 @@ def main() -> int:
         "volumeMountPath": "/workspace",
         "containerDiskInGb": 50,
         "dockerEntrypoint": ["/bin/bash", "-lc"],
-        "dockerStartCmd": [
-            "cd /opt/Ardor && uv run --frozen python scripts/runpod_worker.py"
-        ],
+        "dockerStartCmd": [fixed_start],
         "ports": [],
         "env": {
             "ARDOR_JOB_B64": encoded_job,
+            "ARDOR_AUDIT_CODE_SHA": AUDIT_CODE_SHA,
             "PYTHONUNBUFFERED": "1",
         },
         "interruptible": False,
@@ -126,6 +139,7 @@ def main() -> int:
             "network_volume_id": required_env("RUNPOD_NETWORK_VOLUME_ID"),
             "datacenter_id": required_env("RUNPOD_DATACENTER_ID"),
             "image_name": image,
+            "audit_code_sha": AUDIT_CODE_SHA,
             "github_sha": os.environ.get("GITHUB_SHA", "").strip() or None,
             "task": {"runner": RUNNER},
             "gpu": job["gpu"],
