@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "audited_at_utc": "2026-09-04T12:40:02Z",
+  "workflow_run_id": 33873902991,
+  "purpose": "Freeze route-supervision composition, hashes, and leakage findings before fresh behavior-first training.",
+  "datasets": {
+    "holdout": {
+      "path": "Ardor/training/data/v14_v3/dataset_v3_holdout_audit.jsonl",
+      "rows": 2000,
+      "bytes": 541225,
+      "sha256": "9f1b6b70a65750fc68ec577c8ce8135dfa1ab6881001c70d77a552bc43fef121",
+      "route_balance": "250 per route"
+    },
+    "balanced": {
+      "path": "Ardor/training/data/v14_v3/dataset_v3b_route_contrastive_balanced.jsonl",
+      "rows": 4000,
+      "bytes": 3471670,
+      "sha256": "b9d2c4e298b088cc5ef564dc8f7766fb8e66a01c0046b57c56512a27843b2938",
+      "route_balance": "500 per route",
+      "unique_normalized_anchors": 560,
+      "unique_normalized_chosen": 48,
+      "chosen_word_length_mean": 19.75,
+      "exact_normalized_anchor_overlap_with_holdout": 0,
+      "id_overlap_with_holdout": 0,
+      "source_id_matches_holdout": 0
+    },
+    "targeted_collisions": {
+      "path": "Ardor/training/data/v14_v3/dataset_v14b3_targeted_route_collisions.jsonl",
+      "rows": 3000,
+      "bytes": 3262040,
+      "sha256": "3319c5358cacc0366de59d3ca53f57742ca1770ed7ce2a4fc9abd88c9f01cd64",
+      "routes": ["checkpoint", "direct_answer", "gradient_clipping", "overfitting", "rag", "tokenizer"],
+      "rows_per_present_route": 500,
+      "missing_routes": ["correlation", "dropout"],
+      "unique_normalized_anchors": 420,
+      "unique_normalized_chosen": 36,
+      "chosen_word_length_mean": 19.85,
+      "exact_normalized_anchor_overlap_with_holdout": 0,
+      "id_overlap_with_holdout": 0,
+      "source_id_matches_holdout": 0,
+      "source_dataset": "v3b_route_contrastive_balanced"
+    },
+    "local_margin": {
+      "path": "Ardor/training/data/v14_v3/dataset_v14a2_local_anti_loop_margin.jsonl",
+      "rows": 1200,
+      "bytes": 1489505,
+      "sha256": "938ef13bf3eebebf051df93ce636c09b69050dd66e8840dedd39611ece001ec1",
+      "row_type": "local_logit_margin",
+      "source_holdout_id_rows": 1200,
+      "route_counts": {
+        "checkpoint": 180,
+        "correlation": 180,
+        "direct_answer": 180,
+        "dropout": 180,
+        "gradient_clipping": 180,
+        "overfitting": 180,
+        "rag": 120,
+        "tokenizer": 0
+      }
+    }
+  },
+  "findings": {
+    "balanced_vs_holdout_exact_leakage": false,
+    "targeted_collision_vs_holdout_exact_leakage": false,
+    "historical_holdout_was_used_to_mine_v14a2_local_margin_repairs": true,
+    "historical_holdout_role": "Retain for exact historical comparability, but do not treat as untouched post-v14a2 generalization evidence.",
+    "fresh_lineage_requirement": "Use a new never-trained-on route evaluation set as an additional promotion gate.",
+    "behavior_supervision_diversity_warning": "The balanced and targeted-collision datasets contain many repeated prompts/answers: 4000 balanced rows reduce to 560 unique anchors and 48 unique chosen answers; targeted collisions reduce to 420 anchors and 36 chosen answers and omit correlation/dropout."
+  }
+}
