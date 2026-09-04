@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-volume-v14b7e-latest-eval-read-20260904",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/runs/sft_v14b7e_staged_memory_bank_from_v14a2_u275/latest_eval.json",
+    "max_bytes": 262144
+  }
+}
