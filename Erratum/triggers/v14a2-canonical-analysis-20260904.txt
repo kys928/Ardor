@@ -1,1 +1,1 @@
-Run the fixed explicit-contract canonical v14a2 routing bottleneck analysis on the high-stock RTX PRO 4500 in EU-RO-1.
+Run the fixed explicit-contract canonical v14a2 routing bottleneck analysis on RTX PRO 4500 in EU-RO-1 with the extended 20-minute provisioning watchdog. Retry 2.
