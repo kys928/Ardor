@@ -1,0 +1,27 @@
+name: Inspect v14a2 Canonical Eval Pod
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Erratum/triggers/v14a2-eval-pod-inspect-20260904.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+    steps:
+      - name: Query fixed RunPod pod
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer ${RUNPOD_API_KEY}" \
+            -H 'Accept: application/json' \
+            'https://rest.runpod.io/v1/pods/yft0frqwxtlg3t' \
+            | python -m json.tool
