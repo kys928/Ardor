@@ -33,13 +33,14 @@ from scripts.runpod_control import (
     utc_now,
 )
 
-JOB_ID = "v14a2-canonical-eval-a100-20260904"
+JOB_ID = "v14a2-canonical-eval-consumer-20260904"
 RUNNER = "canonical_eval_v14a2"
 EXPECTED_IMAGE = "ghcr.io/kys928/ardor-runpod:latest"
 AUDIT_CODE_SHA = "42db9328223b3d04f1b3199a65483c33c7953663"
 CANDIDATE_GPUS = [
-    "NVIDIA A100 80GB PCIe",
-    "NVIDIA A100-SXM4-80GB",
+    "NVIDIA GeForce RTX 5090",
+    "NVIDIA GeForce RTX 4090",
+    "NVIDIA RTX PRO 4500 Blackwell",
 ]
 
 
@@ -51,7 +52,7 @@ def main() -> int:
     }
     gpu_types = [gpu for gpu in CANDIDATE_GPUS if gpu in allowed]
     if not gpu_types:
-        raise RuntimeError("No canonical-evaluation A100 candidates are allowed")
+        raise RuntimeError("No canonical-evaluation consumer GPU candidates are allowed")
 
     image = required_env("RUNPOD_IMAGE_NAME")
     if image != EXPECTED_IMAGE:
