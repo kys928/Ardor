@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "id": "ardor-canonical-v14a2-explicit-contract-status-read-r2-20260904",
+  "id": "ardor-canonical-v14a2-explicit-contract-status-read-r3-20260904",
   "kind": "storage",
   "storage": {
     "operation": "read_text",
