@@ -1,14 +1,4 @@
 {
   "pod_id": "n72v1exeyas1xe",
-  "probe": "canonical-routing-analysis-r2-live-capacity",
-  "precise_availability": {
-    "datacenter": "EU-RO-1",
-    "gpu_type_ids": [
-      "NVIDIA GeForce RTX 5090",
-      "NVIDIA GeForce RTX 4090",
-      "NVIDIA RTX PRO 4500 Blackwell",
-      "NVIDIA A100 80GB PCIe",
-      "NVIDIA A100-SXM4-80GB"
-    ]
-  }
+  "probe": "canonical-routing-analysis-r2-machine-check"
 }
