@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-canonical-v14a2-explicit-contract-status-read-20260904",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "ardor-control/runs/v14a2-canonical-eval-explicit-contract-20260904/run-1788522419-4b3705f2/status.json",
+    "max_bytes": 262144
+  }
+}
