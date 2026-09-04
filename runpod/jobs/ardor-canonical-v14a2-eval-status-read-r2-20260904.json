@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-canonical-v14a2-eval-status-read-r2-20260904",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "ardor-control/runs/v14a2-canonical-eval-20260904/run-1788517886-671e38af/status.json",
+    "max_bytes": 65536
+  }
+}
