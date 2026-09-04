@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import random
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -49,12 +50,25 @@ EXPECTED_ROPE_THETA = 10000.0
 def _load_historical_eval_module():
     if not HISTORICAL_TRAINER.is_file():
         raise FileNotFoundError(f"Historical v14a2 trainer is missing: {HISTORICAL_TRAINER}")
-    spec = importlib.util.spec_from_file_location("ardor_v14a2_historical_eval", HISTORICAL_TRAINER)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Could not import historical evaluator: {HISTORICAL_TRAINER}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    historical_scripts = str(HISTORICAL_TRAINER.parent)
+    added = historical_scripts not in sys.path
+    if added:
+        sys.path.append(historical_scripts)
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "ardor_v14a2_historical_eval", HISTORICAL_TRAINER
+        )
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Could not import historical evaluator: {HISTORICAL_TRAINER}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        if added:
+            try:
+                sys.path.remove(historical_scripts)
+            except ValueError:
+                pass
 
 
 def _compact_eval(payload: dict[str, Any]) -> dict[str, Any]:
