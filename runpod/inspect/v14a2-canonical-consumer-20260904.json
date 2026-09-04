@@ -1,4 +1,5 @@
 {
   "pod_id": "msx98if8yk2hky",
-  "probe": "canonical-routing-analysis-all-gpu-fallback-machine-check"
+  "probe": "canonical-routing-analysis-all-gpu-fallback-machine-and-datacenter-check",
+  "datacenter": "EU-RO-1"
 }
