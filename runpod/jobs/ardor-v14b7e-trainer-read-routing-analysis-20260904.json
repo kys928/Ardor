@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-v14b7e-trainer-read-routing-analysis-20260904",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/scripts/ardor_v14b7e_staged_memory_bank_trainer.py",
+    "max_bytes": 1048576
+  }
+}
