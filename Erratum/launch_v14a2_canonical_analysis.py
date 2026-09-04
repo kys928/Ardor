@@ -27,18 +27,14 @@ from scripts.runpod_control import (
     utc_now,
 )
 
-JOB_ID = "v14a2-canonical-analysis-explicit-contract-all-gpu-fallback-20260904"
+JOB_ID = "v14a2-canonical-analysis-explicit-contract-rtxpro4500-20260904"
 RUNNER = "canonical_analysis_v14a2"
 EXPECTED_IMAGE = "ghcr.io/kys928/ardor-runpod:latest"
 AUDIT_CODE_SHA = "e052e0d3acb43643093c44990879482af0f5cde9"
 TORCH_VERSION = "2.11.0"
 TORCH_INDEX = "https://download.pytorch.org/whl/cu128"
 CANDIDATE_GPUS = [
-    "NVIDIA A100-SXM4-80GB",
-    "NVIDIA A100 80GB PCIe",
     "NVIDIA RTX PRO 4500 Blackwell",
-    "NVIDIA GeForce RTX 5090",
-    "NVIDIA GeForce RTX 4090",
 ]
 
 
@@ -50,7 +46,7 @@ def main() -> int:
     }
     gpu_types = [gpu for gpu in CANDIDATE_GPUS if gpu in allowed]
     if gpu_types != CANDIDATE_GPUS:
-        raise RuntimeError("Canonical analysis fallback GPU set is not fully allowed")
+        raise RuntimeError("Canonical analysis RTX PRO 4500 GPU is not allowed")
 
     image = required_env("RUNPOD_IMAGE_NAME")
     if image != EXPECTED_IMAGE:
