@@ -1,1 +1,1 @@
-Run the fixed explicit-contract canonical v14a2 routing bottleneck analysis with the all-allowed-GPU provisioning fallback.
+Run the fixed explicit-contract canonical v14a2 routing bottleneck analysis on the high-stock RTX PRO 4500 in EU-RO-1.
