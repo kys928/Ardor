@@ -2,11 +2,14 @@
 """Fixed-purpose canonical v14a2 behavioral evaluation under the current Ardor architecture.
 
 This evaluator deliberately reuses the historical v14a2 trainer's evaluation functions and
-sampling order, while loading the canonical checkpoint through the current strict native
-checkpoint loader. It performs no training and writes no model checkpoint.
+sampling order. The canonical checkpoint is loaded from its explicit migrated wrapper schema:
+`meta.model_config` must exactly match the migration contract, that exact config is used to
+instantiate ArdorDecoder, and the model state must strict-load. No architecture inference is
+allowed. It performs no training and writes no model checkpoint.
 """
 from __future__ import annotations
 
+import gc
 import importlib.util
 import json
 import random
@@ -17,7 +20,15 @@ from typing import Any
 import torch
 from tokenizers import Tokenizer
 
-from Cerebrum.Cortex.loaders.native_checkpoint import load_native_decoder
+REPO_ROOT = Path(__file__).resolve().parents[1]
+CORTEX_ROOT = REPO_ROOT / "Cerebrum" / "Cortex"
+for _path in (str(CORTEX_ROOT), str(REPO_ROOT)):
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
+
+from ardor_config import ArdorConfig
+from broca_decoder import ArdorDecoder
+from Erratum.canonical_migrate_v14a2 import MODEL_CONFIG
 
 PERSISTENT_ROOT = Path("/workspace/Ardor")
 CANONICAL_CHECKPOINT = (
@@ -97,6 +108,49 @@ def _tokenizer_contract(tok: Tokenizer) -> dict[str, Any]:
     }
 
 
+def _load_canonical_model(device: str) -> tuple[ArdorDecoder, dict[str, Any], dict[str, Any]]:
+    try:
+        raw = torch.load(CANONICAL_CHECKPOINT, map_location="cpu", weights_only=False)
+    except TypeError:
+        raw = torch.load(CANONICAL_CHECKPOINT, map_location="cpu")
+
+    if not isinstance(raw, dict) or set(raw) != {"model", "optimizer", "meta"}:
+        raise RuntimeError(
+            "Canonical checkpoint wrapper mismatch: expected exactly model/optimizer/meta"
+        )
+    if not isinstance(raw.get("model"), dict):
+        raise RuntimeError("Canonical checkpoint model payload is not a state dict")
+    if not isinstance(raw.get("optimizer"), dict):
+        raise RuntimeError("Canonical checkpoint optimizer payload is not a state dict")
+    if not isinstance(raw.get("meta"), dict):
+        raise RuntimeError("Canonical checkpoint meta payload is not a dict")
+
+    checkpoint_meta = dict(raw["meta"])
+    meta_cfg = checkpoint_meta.get("model_config")
+    if meta_cfg != MODEL_CONFIG:
+        raise RuntimeError(
+            f"Canonical meta.model_config mismatch: expected={MODEL_CONFIG!r} actual={meta_cfg!r}"
+        )
+
+    cfg_obj = ArdorConfig.from_dict(meta_cfg)
+    model = ArdorDecoder(cfg_obj)
+    strict_result = model.load_state_dict(raw["model"], strict=True)
+    strict_load = {
+        "strict_loaded": True,
+        "partial_loaded": False,
+        "missing_keys": list(getattr(strict_result, "missing_keys", []) or []),
+        "unexpected_keys": list(getattr(strict_result, "unexpected_keys", []) or []),
+        "source": "canonical_wrapper.meta.model_config",
+    }
+    if strict_load["missing_keys"] or strict_load["unexpected_keys"]:
+        raise RuntimeError(f"Unexpected strict-load mismatch: {strict_load}")
+
+    del raw
+    gc.collect()
+    model = model.to(device).eval()
+    return model, strict_load, checkpoint_meta
+
+
 def evaluate(run_dir: Path) -> dict[str, Any]:
     for required in (CANONICAL_CHECKPOINT, TOKENIZER_PATH, HOLDOUT_PATH, LOCAL_DATA_PATH):
         if not required.is_file():
@@ -114,15 +168,14 @@ def evaluate(run_dir: Path) -> dict[str, Any]:
     args.local_data = str(LOCAL_DATA_PATH)
     args.rebuild_local_data = False
 
-    model, description, want_vocab, checkpoint_meta = load_native_decoder(
-        str(CANONICAL_CHECKPOINT),
-        device,
-        allow_partial_load=False,
-    )
-    if not bool(description.get("strict_loaded")) or bool(description.get("partial_loaded")):
-        raise RuntimeError(f"Canonical checkpoint did not strict-load cleanly: {description}")
-
+    model, strict_load, checkpoint_meta = _load_canonical_model(device)
     cfg = model.model_config() if hasattr(model, "model_config") else {}
+    for key, expected in MODEL_CONFIG.items():
+        actual = cfg.get(key)
+        if actual != expected:
+            raise RuntimeError(
+                f"Instantiated canonical model config mismatch for {key}: expected={expected!r} actual={actual!r}"
+            )
     if not bool(cfg.get("use_rope")):
         raise RuntimeError(f"Canonical model is not using RoPE under the current architecture: {cfg}")
     if float(cfg.get("rope_theta", 0.0)) != EXPECTED_ROPE_THETA:
@@ -132,9 +185,9 @@ def evaluate(run_dir: Path) -> dict[str, Any]:
     tok_contract = _tokenizer_contract(tok)
     if not tok_contract["passed"]:
         raise RuntimeError(f"Tokenizer v9 contract mismatch: {tok_contract['mismatches']}")
-    if int(want_vocab) != EXPECTED_VOCAB_SIZE:
+    if int(cfg.get("vocab_size", 0)) != EXPECTED_VOCAB_SIZE:
         raise RuntimeError(
-            f"Checkpoint/model vocab mismatch: expected={EXPECTED_VOCAB_SIZE} actual={want_vocab}"
+            f"Checkpoint/model vocab mismatch: expected={EXPECTED_VOCAB_SIZE} actual={cfg.get('vocab_size')}"
         )
 
     special = history.special_ids(tok, args)
@@ -159,15 +212,10 @@ def evaluate(run_dir: Path) -> dict[str, Any]:
     )
 
     result = {
-        "schema_version": 1,
+        "schema_version": 2,
         "passed": True,
         "checkpoint": str(CANONICAL_CHECKPOINT),
-        "strict_load": {
-            "strict_loaded": bool(description.get("strict_loaded")),
-            "partial_loaded": bool(description.get("partial_loaded")),
-            "missing_keys": list(description.get("missing_keys") or []),
-            "unexpected_keys": list(description.get("unexpected_keys") or []),
-        },
+        "strict_load": strict_load,
         "model_config": cfg,
         "checkpoint_meta": checkpoint_meta,
         "tokenizer": tok_contract,
@@ -183,6 +231,8 @@ def evaluate(run_dir: Path) -> dict[str, Any]:
             "margin": float(args.margin),
             "min_eval_words": int(args.min_eval_words),
             "generation": "greedy_argmax",
+            "architecture_source": "canonical_checkpoint.meta.model_config",
+            "architecture_inference_allowed": False,
         },
         "local_eval": _compact_eval(local_eval),
         "holdout_eval": _compact_eval(holdout_eval),
