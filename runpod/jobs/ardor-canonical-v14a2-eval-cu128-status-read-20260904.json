@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "id": "ardor-canonical-v14a2-eval-cu128-status-read-r2-20260904",
+  "id": "ardor-canonical-v14a2-eval-cu128-status-read-r3-20260904",
   "kind": "storage",
   "storage": {
     "operation": "read_text",
