@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-canonical-v14a2-eval-cu128-status-read-20260904",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "ardor-control/runs/v14a2-canonical-eval-cu128-20260904/run-1788519854-047aace2/status.json",
+    "max_bytes": 262144
+  }
+}
