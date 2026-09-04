@@ -28,7 +28,7 @@ jobs:
           RUNPOD_NETWORK_VOLUME_ID: ${{ vars.RUNPOD_NETWORK_VOLUME_ID }}
           RUNPOD_DATACENTER_ID: ${{ vars.RUNPOD_DATACENTER_ID }}
           RUNPOD_S3_ENDPOINT: ${{ vars.RUNPOD_S3_ENDPOINT }}
-        run: python Erratum/audit_v14_route_data.py
+        run: PYTHONPATH=. python Erratum/audit_v14_route_data.py
       - name: Upload audit
         uses: actions/upload-artifact@v4
         with:
