@@ -38,10 +38,10 @@ EXPECTED_SPECIAL_IDS = {
     "<unk>": 1,
     "<bos>": 2,
     "<eos>": 3,
-    "<user>": 4,
-    "<assistant>": 5,
-    "<system>": 6,
-    "<eot>": 7,
+    "<|user|>": 4,
+    "<|assistant|>": 5,
+    "<|system|>": 6,
+    "<|eot|>": 7,
 }
 EXPECTED_VOCAB_SIZE = 52224
 EXPECTED_ROPE_THETA = 10000.0
