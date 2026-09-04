@@ -32,7 +32,12 @@ PATH_ARGS = {
     "gen_probe_prompts": "--gen_probe_prompts",
 }
 FORBIDDEN_ARCH_OVERRIDES = {"hidden_size", "n_layers", "n_heads", "ff_mult", "ctx"}
-ALLOWED_RUNNERS = {"ardor_promptgen", "infra_smoke", "canonical_migrate_v14a2"}
+ALLOWED_RUNNERS = {
+    "ardor_promptgen",
+    "infra_smoke",
+    "canonical_migrate_v14a2",
+    "canonical_eval_v14a2",
+}
 
 
 def utc_now() -> str:
@@ -198,6 +203,16 @@ def canonical_migrate_v14a2(run_dir: Path) -> dict[str, Any]:
     return migrate(run_dir)
 
 
+def canonical_eval_v14a2(run_dir: Path) -> dict[str, Any]:
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    if str(CORTEX_ROOT) not in sys.path:
+        sys.path.insert(0, str(CORTEX_ROOT))
+    from Erratum.canonical_eval_v14a2 import evaluate
+
+    return evaluate(run_dir)
+
+
 def build_promptgen_command(job: dict[str, Any], job_id: str, control_run_id: str) -> list[str]:
     task = job.get("task")
     if not isinstance(task, dict):
@@ -287,11 +302,11 @@ def run() -> int:
     runner = str(task.get("runner", ""))
     if runner not in ALLOWED_RUNNERS:
         raise ValueError(f"Unsupported task.runner: {runner!r}")
-    if runner == "canonical_migrate_v14a2":
+    if runner in {"canonical_migrate_v14a2", "canonical_eval_v14a2"}:
         extra = sorted(set(task) - {"runner"})
         if extra:
             raise ValueError(
-                "canonical_migrate_v14a2 is fixed-purpose and accepts no task fields beyond runner; "
+                f"{runner} is fixed-purpose and accepts no task fields beyond runner; "
                 f"unexpected: {extra}"
             )
 
@@ -305,6 +320,8 @@ def run() -> int:
         command = ["internal:infra_smoke"]
     elif runner == "canonical_migrate_v14a2":
         command = ["internal:canonical_migrate_v14a2"]
+    elif runner == "canonical_eval_v14a2":
+        command = ["internal:canonical_eval_v14a2"]
     else:
         command = build_promptgen_command(job, job_id, control_run_id)
 
@@ -340,6 +357,14 @@ def run() -> int:
             )
             returncode = 0 if result.get("passed") else 1
             result_path = run_dir / "canonical_migration.json"
+        elif runner == "canonical_eval_v14a2":
+            result = canonical_eval_v14a2(run_dir)
+            log_path.write_text(
+                json.dumps(result, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            returncode = 0 if result.get("passed") else 1
+            result_path = run_dir / "canonical_eval.json"
         else:
             returncode = run_subprocess(command, log_path)
             result_path = None
