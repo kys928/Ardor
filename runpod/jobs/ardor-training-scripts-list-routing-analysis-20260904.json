@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "ardor-training-scripts-list-routing-analysis-20260904",
+  "kind": "storage",
+  "storage": {
+    "operation": "list",
+    "path": "Ardor/training/scripts/",
+    "max_items": 1000,
+    "shallow": true
+  }
+}
