@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-v14a2-trainer-read-routing-analysis-20260904",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/scripts/ardor_v14a2_local_anti_loop_margin_trainer.py",
+    "max_bytes": 1048576
+  }
+}
