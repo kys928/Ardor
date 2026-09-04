@@ -35,13 +35,17 @@ from scripts.runpod_control import (
     utc_now,
 )
 
-JOB_ID = "v14a2-canonical-eval-explicit-contract-20260904"
+JOB_ID = "v14a2-canonical-eval-explicit-contract-r2-20260904"
 RUNNER = "canonical_eval_v14a2"
 EXPECTED_IMAGE = "ghcr.io/kys928/ardor-runpod:latest"
 AUDIT_CODE_SHA = "97f965077772e4a96f0431f8928d235170f77f0d"
 TORCH_VERSION = "2.11.0"
 TORCH_INDEX = "https://download.pytorch.org/whl/cu128"
-CANDIDATE_GPUS = ["NVIDIA GeForce RTX 4090"]
+CANDIDATE_GPUS = [
+    "NVIDIA GeForce RTX 5090",
+    "NVIDIA GeForce RTX 4090",
+    "NVIDIA RTX PRO 4500 Blackwell",
+]
 
 
 def main() -> int:
@@ -52,7 +56,7 @@ def main() -> int:
     }
     gpu_types = [gpu for gpu in CANDIDATE_GPUS if gpu in allowed]
     if gpu_types != CANDIDATE_GPUS:
-        raise RuntimeError("RTX 4090 is not allowed for canonical evaluation")
+        raise RuntimeError("Canonical consumer GPU set is not fully allowed")
 
     image = required_env("RUNPOD_IMAGE_NAME")
     if image != EXPECTED_IMAGE:
