@@ -1,3 +1,13 @@
 {
-  "pod_id": "22gtni5kg3cvfy"
+  "pod_id": "22gtni5kg3cvfy",
+  "precise_availability": {
+    "datacenter": "EU-RO-1",
+    "gpu_type_ids": [
+      "NVIDIA GeForce RTX 5090",
+      "NVIDIA GeForce RTX 4090",
+      "NVIDIA RTX PRO 4500 Blackwell",
+      "NVIDIA A100 80GB PCIe",
+      "NVIDIA A100-SXM4-80GB"
+    ]
+  }
 }
