@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "designation": "canonical_v14a2_explicit_24_head_baseline",
+  "frozen_at_utc": "2026-09-04T12:26:51Z",
+  "checkpoint": {
+    "path": "/workspace/Ardor/training/runs/v14_promoted_candidates/v14a2_local_anti_loop_margin_best_u600_CANONICAL_FULLSTATE.pt",
+    "size_bytes": 12182834443,
+    "sha256": "500252cead0b6ff9825ff9c4ef8e878c00403f866f23911133c26fff56999816",
+    "sha256_method": "full-object streaming SHA-256 over the exact RunPod Network Volume object; S3 ETag is not used as a digest",
+    "hash_workflow": ".github/workflows/hash-v14a2-canonical.yml"
+  },
+  "scientific_evaluator": {
+    "code_sha": "97f965077772e4a96f0431f8928d235170f77f0d",
+    "script": "Erratum/canonical_eval_v14a2.py",
+    "workflow_run_id": 33870485522,
+    "job_id": "v14a2-canonical-eval-explicit-contract-r2-20260904",
+    "control_run_id": "run-1788523142-7f262c30",
+    "pod_id": "mwhirj06znhfu6",
+    "gpu": "NVIDIA RTX PRO 4500 Blackwell",
+    "torch": "2.11.0+cu128",
+    "cuda_runtime": "12.8"
+  },
+  "model_config": {
+    "vocab_size": 52224,
+    "d_model": 1536,
+    "n_layers": 36,
+    "n_heads": 24,
+    "max_seq_len": 2048,
+    "dropout": 0.0,
+    "use_rope": true,
+    "rope_theta": 10000.0,
+    "layer_norm_eps": 0.00001
+  },
+  "architecture_contract": {
+    "source": "checkpoint.meta.model_config",
+    "explicit": true,
+    "generic_architecture_inference_used": false,
+    "native_loader_used": false,
+    "strict_load": true,
+    "strict_missing_keys": [],
+    "strict_unexpected_keys": [],
+    "rope_implementation_contract": "Cerebrum.Cortex.dorsolateral_prefrontal_cortex.MultiHeadSelfAttention._build_rope_cache+_apply_rope"
+  },
+  "tokenizer": {
+    "path": "/workspace/Ardor/tokenizer_v9.json",
+    "expected_vocab_size": 52224,
+    "actual_vocab_size": 52224,
+    "special_token_ids": {
+      "<pad>": 0,
+      "<unk>": 1,
+      "<bos>": 2,
+      "<eos>": 3,
+      "<user>": 4,
+      "<assistant>": 5,
+      "<system>": 6,
+      "<eot>": 7
+    }
+  },
+  "evaluation_data": {
+    "holdout": "/workspace/Ardor/training/data/v14_v3/dataset_v3_holdout_audit.jsonl",
+    "local_margin_data": "/workspace/Ardor/training/data/v14_v3/dataset_v14a2_local_anti_loop_margin.jsonl",
+    "historical_trainer": "/workspace/Ardor/training/scripts/ardor_v14a2_local_anti_loop_margin_trainer.py",
+    "seed": 928
+  },
+  "behavioral_baseline": {
+    "samples": 256,
+    "bad_count": 181,
+    "bad_rate": 0.70703125,
+    "loop_count": 10,
+    "model_loop_rate": 0.0390625,
+    "rep_count": 15,
+    "rep_rate": 0.05859375,
+    "by_category": {
+      "direct_answer": {"bad": 8, "bad_rate": 0.25, "total": 32},
+      "tokenizer": {"bad": 18, "bad_rate": 0.5625, "total": 32},
+      "rag": {"bad": 22, "bad_rate": 0.6875, "total": 32},
+      "gradient_clipping": {"bad": 24, "bad_rate": 0.75, "total": 32},
+      "overfitting": {"bad": 21, "bad_rate": 0.65625, "total": 32},
+      "dropout": {"bad": 27, "bad_rate": 0.84375, "total": 32},
+      "checkpoint": {"bad": 29, "bad_rate": 0.90625, "total": 32},
+      "correlation": {"bad": 32, "bad_rate": 1.0, "total": 32}
+    },
+    "failure_summary": {
+      "tokenizer_missing_signal": 18,
+      "overfitting_missing_signal": 21,
+      "correlation_missing_signal": 32,
+      "gradient_clipping_missing_signal": 24,
+      "rag_missing_signal": 22,
+      "dropout_missing_signal": 27,
+      "checkpoint_missing_signal": 29,
+      "direct_answer_missing_signal": 8
+    }
+  },
+  "teacher_forced_baseline": {
+    "samples": 128,
+    "tokens": 1536,
+    "target_ce": 6.921149412790934,
+    "target_ppl": 1013.4840296893712
+  },
+  "local_margin_baseline": {
+    "samples": 512,
+    "pass_rate": 0.841796875,
+    "avg_used_gap": 0.1350944388314479,
+    "avg_used_pos": 0.2831907227449113,
+    "avg_used_neg": 0.14809628775855544
+  },
+  "excluded_reference_runs": [
+    {
+      "reason": "invalid architecture reconstruction",
+      "details": "An earlier corrected-RoPE evaluation reconstructed the wrapper as 6 attention heads because generic metadata reading missed checkpoint.meta.model_config. Strict tensor loading passed but the semantic attention partition was wrong. Its behavioral metrics are explicitly non-canonical."
+    }
+  ]
+}
