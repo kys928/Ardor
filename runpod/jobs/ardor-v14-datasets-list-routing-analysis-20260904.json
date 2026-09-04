@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "ardor-v14-datasets-list-routing-analysis-20260904",
+  "kind": "storage",
+  "storage": {
+    "operation": "list",
+    "path": "Ardor/training/data/v14_v3/",
+    "max_items": 1000,
+    "shallow": true
+  }
+}
