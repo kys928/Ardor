@@ -4,7 +4,9 @@
 This launcher is intentionally one-purpose. It accepts no checkpoint path, evaluator,
 image, GPU count, or model override from user input. The pod executes an exact pinned
 Ardor code commit so the scientific architecture/evaluator contract cannot drift with
-an image tag.
+an image tag. The image's locked Torch 2.11.0 build currently resolves CUDA-13-era
+packages; for this evaluation we reinstall the *same* Torch version from PyTorch's
+official CUDA 12.8 wheel index before executing the pinned evaluator.
 """
 from __future__ import annotations
 
@@ -33,15 +35,13 @@ from scripts.runpod_control import (
     utc_now,
 )
 
-JOB_ID = "v14a2-canonical-eval-consumer-20260904"
+JOB_ID = "v14a2-canonical-eval-cu128-20260904"
 RUNNER = "canonical_eval_v14a2"
 EXPECTED_IMAGE = "ghcr.io/kys928/ardor-runpod:latest"
 AUDIT_CODE_SHA = "42db9328223b3d04f1b3199a65483c33c7953663"
-CANDIDATE_GPUS = [
-    "NVIDIA GeForce RTX 5090",
-    "NVIDIA GeForce RTX 4090",
-    "NVIDIA RTX PRO 4500 Blackwell",
-]
+TORCH_VERSION = "2.11.0"
+TORCH_INDEX = "https://download.pytorch.org/whl/cu128"
+CANDIDATE_GPUS = ["NVIDIA GeForce RTX 4090"]
 
 
 def main() -> int:
@@ -51,8 +51,8 @@ def main() -> int:
         if item.strip()
     }
     gpu_types = [gpu for gpu in CANDIDATE_GPUS if gpu in allowed]
-    if not gpu_types:
-        raise RuntimeError("No canonical-evaluation consumer GPU candidates are allowed")
+    if gpu_types != CANDIDATE_GPUS:
+        raise RuntimeError("RTX 4090 is not allowed for canonical evaluation")
 
     image = required_env("RUNPOD_IMAGE_NAME")
     if image != EXPECTED_IMAGE:
@@ -84,6 +84,13 @@ def main() -> int:
         f"git fetch --depth 1 origin {AUDIT_CODE_SHA} && "
         "git checkout --detach FETCH_HEAD && "
         f"test \"$(git rev-parse HEAD)\" = \"{AUDIT_CODE_SHA}\" && "
+        f"/root/.local/bin/uv pip install --python /opt/Ardor/.venv/bin/python "
+        f"--index-url {TORCH_INDEX} --reinstall torch=={TORCH_VERSION} && "
+        "/opt/Ardor/.venv/bin/python -c \"import torch; "
+        f"assert torch.__version__.startswith('{TORCH_VERSION}'); "
+        "assert torch.cuda.is_available(), "
+        "f'CUDA unavailable after cu128 reinstall: torch={torch.__version__} cuda={torch.version.cuda}'; "
+        "print(f'[canonical-eval-runtime] torch={torch.__version__} cuda={torch.version.cuda} device={torch.cuda.get_device_name(0)}')\" && "
         "/opt/Ardor/.venv/bin/python scripts/runpod_worker.py"
     )
 
@@ -105,6 +112,8 @@ def main() -> int:
         "env": {
             "ARDOR_JOB_B64": encoded_job,
             "ARDOR_AUDIT_CODE_SHA": AUDIT_CODE_SHA,
+            "ARDOR_EVAL_TORCH_VERSION": TORCH_VERSION,
+            "ARDOR_EVAL_TORCH_INDEX": TORCH_INDEX,
             "PYTHONUNBUFFERED": "1",
         },
         "interruptible": False,
@@ -138,6 +147,8 @@ def main() -> int:
             "datacenter_id": required_env("RUNPOD_DATACENTER_ID"),
             "image_name": image,
             "audit_code_sha": AUDIT_CODE_SHA,
+            "torch_version": TORCH_VERSION,
+            "torch_index": TORCH_INDEX,
             "github_sha": os.environ.get("GITHUB_SHA", "").strip() or None,
             "task": {"runner": RUNNER},
             "gpu": job["gpu"],
