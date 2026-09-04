@@ -1,0 +1,63 @@
+name: Cleanup current v14a2 canonical analysis Pod
+
+on:
+  push:
+    paths:
+      - 'Erratum/triggers/cleanup-v14a2-canonical-analysis-pod-20260904.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out Ardor
+        uses: actions/checkout@v5
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Install boto3
+        run: python -m pip install --disable-pip-version-check boto3
+      - name: Cleanup only the current unstarted diagnostic Pod
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          RUNPOD_S3_ACCESS_KEY_ID: ${{ secrets.RUNPOD_S3_ACCESS_KEY_ID }}
+          RUNPOD_S3_SECRET_ACCESS_KEY: ${{ secrets.RUNPOD_S3_SECRET_ACCESS_KEY }}
+          RUNPOD_NETWORK_VOLUME_ID: ${{ vars.RUNPOD_NETWORK_VOLUME_ID }}
+          RUNPOD_DATACENTER_ID: ${{ vars.RUNPOD_DATACENTER_ID }}
+          RUNPOD_S3_ENDPOINT: ${{ vars.RUNPOD_S3_ENDPOINT }}
+        run: |
+          python - <<'PY'
+          import json, sys
+          sys.path.insert(0, 'scripts')
+          import runpod_control as control
+
+          job_id = 'v14a2-canonical-analysis-explicit-contract-all-gpu-fallback-20260904'
+          control_run_id = 'run-1788529464-2efaa805'
+          pod_id = 'msx98if8yk2hky'
+          active_name = control.active_key(control_run_id)
+          status_name = control.status_key(job_id, control_run_id)
+
+          record = control.read_json_object(active_name)
+          if record is None:
+              print(json.dumps({'cleanup': 'already_archived', 'pod_id': pod_id}))
+              raise SystemExit(0)
+          worker_status = control.read_json_object(status_name)
+          if worker_status is not None:
+              print(json.dumps({'cleanup': 'refused_worker_started', 'pod_id': pod_id, 'worker_state': worker_status.get('state')}))
+              raise SystemExit(0)
+          if str(record.get('pod_id')) != pod_id or str(record.get('job_id')) != job_id:
+              raise RuntimeError(f'Active record identity mismatch: {record!r}')
+
+          cleanup = control.delete_pod(pod_id)
+          control.archive_record(
+              active_name,
+              record,
+              reason='targeted_provisioning_retry_rtx_pro_4500',
+              worker_status=None,
+          )
+          print(json.dumps({'cleanup': cleanup, 'pod_id': pod_id, 'archived': True}))
+          PY
