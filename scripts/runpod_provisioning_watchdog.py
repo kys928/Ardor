@@ -9,7 +9,7 @@ from typing import Any
 
 import runpod_control as control
 
-DEFAULT_PROVISIONING_TIMEOUT_MINUTES = 10
+DEFAULT_PROVISIONING_TIMEOUT_MINUTES = 20
 
 
 def provisioning_timeout_minutes() -> int:
