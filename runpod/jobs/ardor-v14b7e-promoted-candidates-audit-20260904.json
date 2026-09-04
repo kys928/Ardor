@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-v14b7e-promoted-candidates-audit-20260904",
+  "kind": "storage",
+  "storage": {
+    "operation": "list",
+    "path": "Ardor/training/runs/v14_promoted_candidates/",
+    "max_items": 500
+  }
+}
