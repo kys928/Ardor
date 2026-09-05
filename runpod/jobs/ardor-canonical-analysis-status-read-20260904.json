@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "id": "ardor-canonical-analysis-retry2-status-read-20260904",
+  "id": "ardor-canonical-analysis-presigned-status-read-20260905",
   "kind": "storage",
   "storage": {
     "operation": "read_text",
-    "path": "ardor-control/runs/v14a2-canonical-analysis-explicit-contract-rtxpro4500-20260904/run-1788533797-baec5c47/status.json",
+    "path": "ardor-control/runs/v14a2-canonical-analysis-presigned-s3-20260905/run-1788597552-3b1fff23/status.json",
     "max_bytes": 262144
   }
 }
