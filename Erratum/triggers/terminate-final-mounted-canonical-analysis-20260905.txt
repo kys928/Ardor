@@ -1,0 +1,1 @@
+Terminate pod iubdm6bjn75koo after the final mounted-volume attempt remained unassigned beyond 11 minutes despite available GPU stock. Proceed to presigned-S3 fallback.
