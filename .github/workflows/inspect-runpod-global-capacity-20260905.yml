@@ -1,0 +1,48 @@
+name: Inspect RunPod Global Capacity 20260905
+
+on:
+  push:
+    paths:
+      - 'Erratum/triggers/inspect-runpod-global-capacity-20260905.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Inspect current allowed GPU stock by datacenter
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          RUNPOD_ALLOWED_GPU_TYPES: ${{ vars.RUNPOD_ALLOWED_GPU_TYPES }}
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/runpodctl https://github.com/runpod/runpodctl/releases/latest/download/runpodctl-linux-amd64
+          chmod +x /tmp/runpodctl
+          mkdir -p ~/.runpod
+          printf '{}\n' > ~/.runpod/.runpod.yaml
+          /tmp/runpodctl config --apiKey "$RUNPOD_API_KEY" >/dev/null
+          /tmp/runpodctl datacenter list > /tmp/datacenters.json
+          python - <<'PY'
+          import json, os
+          allowed = {x.strip() for x in os.environ['RUNPOD_ALLOWED_GPU_TYPES'].split(',') if x.strip()}
+          rows = json.load(open('/tmp/datacenters.json'))
+          rank = {'High': 0, 'Medium': 1, 'Low': 2, '': 9}
+          out = []
+          for dc in rows:
+              for gpu in dc.get('gpuAvailability') or []:
+                  gpu_id = gpu.get('gpuId')
+                  stock = gpu.get('stockStatus') or ''
+                  if gpu_id in allowed and stock:
+                      out.append({
+                          'datacenter': dc.get('id'),
+                          'location': dc.get('location'),
+                          'gpu_id': gpu_id,
+                          'display_name': gpu.get('displayName'),
+                          'stock_status': stock,
+                      })
+          out.sort(key=lambda r: (rank.get(r['stock_status'], 8), r['gpu_id'], r['datacenter']))
+          print(json.dumps({'allowed_secure_capacity': out}, indent=2))
+          PY
