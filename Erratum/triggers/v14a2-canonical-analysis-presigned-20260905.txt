@@ -1,0 +1,1 @@
+Mounted-volume retry exhausted without a worker assignment. Launch the presigned-S3 transport fallback while preserving scientific diagnostic SHA e052e0d3acb43643093c44990879482af0f5cde9 and the frozen canonical checkpoint identity.
