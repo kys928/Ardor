@@ -1,0 +1,31 @@
+name: Terminate Final Mounted Canonical Analysis Retry
+
+on:
+  push:
+    paths:
+      - 'Erratum/triggers/terminate-final-mounted-canonical-analysis-20260905.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  terminate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Delete fixed non-provisioning RunPod reservation
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          set -euo pipefail
+          code=$(curl --silent --show-error --output /tmp/runpod-delete.json --write-out '%{http_code}' \
+            -X DELETE \
+            -H "Authorization: Bearer ${RUNPOD_API_KEY}" \
+            -H 'Accept: application/json' \
+            'https://rest.runpod.io/v1/pods/iubdm6bjn75koo')
+          cat /tmp/runpod-delete.json || true
+          if [[ "$code" != "200" && "$code" != "204" && "$code" != "404" ]]; then
+            echo "Unexpected RunPod delete HTTP status: $code" >&2
+            exit 1
+          fi
+          echo "RunPod delete HTTP status: $code"
