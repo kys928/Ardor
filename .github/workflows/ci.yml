@@ -44,6 +44,7 @@ jobs:
           python -m py_compile Hephaestus/runpod_train_entry.py
           python -m py_compile Erratum/canonical_migrate_v14a2.py
           python -m py_compile Erratum/launch_v14a2_canonical_migration.py
+          python -m py_compile Erratum/launch_v14a2_canonical_analysis_presigned.py
           python -m py_compile scripts/runpod_worker.py
           python -m py_compile scripts/runpod_control.py
           python -m py_compile scripts/runpod_provisioning_watchdog.py
