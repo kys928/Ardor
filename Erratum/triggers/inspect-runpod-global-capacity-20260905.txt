@@ -1,0 +1,1 @@
+Inspect current RunPod datacenter stock for the GPU classes allowed by Ardor so a targeted presigned-S3 retry can be chosen if the global reservation does not attach.
