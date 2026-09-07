@@ -1,0 +1,29 @@
+name: Cleanup heavy canonical analysis 4500 20260907
+
+on:
+  push:
+    paths:
+      - '.github/workflows/cleanup-heavy-canonical-analysis-4500-20260907.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Install and configure RunPod CLI
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/runpodctl https://github.com/runpod/runpodctl/releases/latest/download/runpodctl-linux-amd64
+          chmod +x /tmp/runpodctl
+          mkdir -p ~/.runpod
+          printf '{}\n' > ~/.runpod/.runpod.yaml
+          /tmp/runpodctl config --apiKey "$RUNPOD_API_KEY" >/dev/null
+      - name: Delete superseded heavy canonical analysis Pod
+        run: |
+          set -euo pipefail
+          /tmp/runpodctl pod delete 5i9dgr4xlakug6
