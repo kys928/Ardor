@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "id": "ardor-canonical-analysis-lightweight-mounted-euro4500-status-read-20260907",
+  "id": "ardor-canonical-analysis-lightweight-mounted-euro4500-r2-status-read-20260907",
   "kind": "storage",
   "storage": {
     "operation": "read_text",
-    "path": "ardor-control/runs/v14a2-canonical-analysis-lightweight-mounted-euro4500-20260907/run-1788772195-7da7e641/status.json",
+    "path": "ardor-control/runs/v14a2-canonical-analysis-lightweight-mounted-euro4500-r2-20260907/run-1788772837-377c95fd/status.json",
     "max_bytes": 262144
   }
 }
