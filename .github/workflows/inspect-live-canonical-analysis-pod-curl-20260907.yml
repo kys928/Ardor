@@ -1,0 +1,25 @@
+name: Inspect live canonical analysis Pod via curl 20260907
+
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-live-canonical-analysis-pod-curl-20260907.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Inspect exact Pod with curl
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          set -euo pipefail
+          curl -sS --fail-with-body \
+            --request GET \
+            --url 'https://rest.runpod.io/v1/pods/q010phdqvue9ls' \
+            --header "Authorization: Bearer $RUNPOD_API_KEY" \
+          | python -c 'import json,sys; p=json.load(sys.stdin); allowed=("id","name","desiredStatus","status","cloudType","gpuCount","gpuTypeIds","costPerHr","imageName","networkVolumeId","lastStatusChange","runtime","machine","interruptible"); print(json.dumps({k:p.get(k) for k in allowed if k in p}, indent=2, default=str))'
