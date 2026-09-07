@@ -1,0 +1,1 @@
+rerun after fixing RunPod Cloudflare 1010 by using curl POST; presigned transport abandoned because RunPod S3 does not support presigned URLs
