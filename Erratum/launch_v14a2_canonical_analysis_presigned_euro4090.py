@@ -7,8 +7,13 @@ scientific evaluator remain those in launch_v14a2_canonical_analysis_presigned.
 """
 from __future__ import annotations
 
-import os
+import sys
+from pathlib import Path
 from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from Erratum import launch_v14a2_canonical_analysis_presigned as base
 
