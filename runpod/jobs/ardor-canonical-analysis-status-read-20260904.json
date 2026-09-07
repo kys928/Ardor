@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "id": "ardor-canonical-analysis-presigned-status-read-20260905",
+  "id": "ardor-canonical-analysis-presigned-euro4090-status-read-20260907",
   "kind": "storage",
   "storage": {
     "operation": "read_text",
-    "path": "ardor-control/runs/v14a2-canonical-analysis-presigned-s3-20260905/run-1788597552-3b1fff23/status.json",
+    "path": "ardor-control/runs/v14a2-canonical-analysis-presigned-s3-euro4090-20260907/run-1788768845-f5294881/status.json",
     "max_bytes": 262144
   }
 }
