@@ -1,0 +1,53 @@
+name: Inspect RunPod GraphQL Pod Input 20260907
+
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-runpod-graphql-pod-input-20260907.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Inspect podFindAndDeployOnDemand schema
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          python - <<'PY'
+          import json, os, urllib.parse, urllib.request
+          url = 'https://api.runpod.io/graphql?' + urllib.parse.urlencode({'api_key': os.environ['RUNPOD_API_KEY']})
+          query = '''query {
+            __schema {
+              mutationType {
+                fields {
+                  name
+                  args { name type { kind name ofType { kind name ofType { kind name } } } } }
+                }
+              }
+            }
+          }'''
+          req = urllib.request.Request(url, data=json.dumps({'query': query}).encode(), headers={'Content-Type':'application/json'})
+          with urllib.request.urlopen(req, timeout=60) as r:
+              data = json.load(r)
+          fields = data['data']['__schema']['mutationType']['fields']
+          target = [f for f in fields if f['name'] == 'podFindAndDeployOnDemand']
+          print(json.dumps({'mutation': target}, indent=2))
+          # Query likely input type names seen on the target.
+          names = set()
+          def walk(t):
+              while isinstance(t, dict):
+                  if t.get('name'): names.add(t['name'])
+                  t = t.get('ofType')
+          for f in target:
+              for a in f.get('args', []): walk(a.get('type'))
+          for name in sorted(names):
+              q = '''query($name:String!){ __type(name:$name){ name kind inputFields { name type { kind name ofType { kind name ofType { kind name } } } } } }'''
+              req = urllib.request.Request(url, data=json.dumps({'query': q, 'variables': {'name': name}}).encode(), headers={'Content-Type':'application/json'})
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  detail = json.load(r)
+              print(json.dumps(detail, indent=2))
+          PY
