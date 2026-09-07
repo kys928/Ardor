@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Relaunch canonical v14a2 analysis over presigned S3 on exact EU-RO-1 RTX 4090.
+"""Relaunch canonical v14a2 analysis over presigned S3 on exact EU-RO-1 RTX PRO 4500.
 
 This wrapper intentionally changes only RunPod placement and HTTP client.
 The underlying presigned transport, checkpoint SHA-256 verification, runtime
@@ -22,9 +22,9 @@ if str(REPO_ROOT) not in sys.path:
 from Erratum import launch_v14a2_canonical_analysis_presigned as base
 
 EXPECTED_DATACENTER = "EU-RO-1"
-EXACT_GPU = "NVIDIA GeForce RTX 4090"
+EXACT_GPU = "NVIDIA RTX PRO 4500 Blackwell"
 
-base.JOB_ID = "v14a2-canonical-analysis-presigned-s3-euro4090-20260907"
+base.JOB_ID = "v14a2-canonical-analysis-presigned-s3-euro4500-20260907"
 base.CANDIDATE_GPUS = [EXACT_GPU]
 
 _original_runpod_request = base.runpod_request
