@@ -20,6 +20,6 @@ jobs:
           set -euo pipefail
           curl -sS --fail-with-body \
             --request GET \
-            --url 'https://rest.runpod.io/v1/pods/5i9dgr4xlakug6?includeMachine=true' \
+            --url 'https://rest.runpod.io/v1/pods/1osv14yq1bl28j?includeMachine=true' \
             --header "Authorization: Bearer $RUNPOD_API_KEY" \
           | python -c 'import json,sys; p=json.load(sys.stdin); allowed=("id","name","desiredStatus","status","cloudType","gpuCount","gpuTypeIds","costPerHr","imageName","networkVolumeId","lastStatusChange","runtime","machine","interruptible"); print(json.dumps({k:p.get(k) for k in allowed if k in p}, indent=2, default=str))'
