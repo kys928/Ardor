@@ -8,9 +8,12 @@ RoPE/model contract, and worker. Only the container/bootstrap layer changes.
 """
 from __future__ import annotations
 
+import json
 import os
+import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -28,6 +31,35 @@ base.EXPECTED_IMAGE = LIGHT_IMAGE
 os.environ["RUNPOD_IMAGE_NAME"] = LIGHT_IMAGE
 
 _original_runpod_request = base.runpod_request
+
+
+def _curl_post(path: str, payload: dict[str, Any]) -> Any:
+    marker = "__ARDOR_HTTP_STATUS__:"
+    proc = subprocess.run(
+        [
+            "curl", "-sS", "--request", "POST",
+            "--url", f"https://rest.runpod.io/v1{path}",
+            "--header", f"Authorization: Bearer {os.environ['RUNPOD_API_KEY']}",
+            "--header", "Content-Type: application/json",
+            "--data-binary", "@-",
+            "--write-out", f"\\n{marker}%{{http_code}}",
+        ],
+        input=json.dumps(payload, separators=(",", ":")),
+        text=True,
+        capture_output=True,
+        timeout=90,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"RunPod curl POST {path} failed rc={proc.returncode}: {proc.stderr.strip()}")
+    if marker not in proc.stdout:
+        raise RuntimeError(f"RunPod curl POST {path} returned no HTTP marker")
+    body, raw_status = proc.stdout.rsplit(marker, 1)
+    status = int(raw_status.strip())
+    body = body.rstrip("\n")
+    if not 200 <= status < 300:
+        raise RuntimeError(f"RunPod curl POST {path} failed: HTTP {status}: {body[:4000]}")
+    return json.loads(body)
 
 
 def _lightweight_start() -> str:
@@ -69,6 +101,7 @@ def _lightweight_request(method: str, path: str, payload=None):
         payload["dockerEntrypoint"] = ["/bin/bash", "-lc"]
         payload["dockerStartCmd"] = [_lightweight_start()]
         payload.pop("containerRegistryAuthId", None)
+        return _curl_post(path, payload)
     return _original_runpod_request(method, path, payload)
 
 
