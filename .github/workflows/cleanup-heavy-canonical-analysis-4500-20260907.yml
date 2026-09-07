@@ -1,4 +1,4 @@
-name: Cleanup heavy canonical analysis 4500 20260907
+name: Cleanup failed presigned canonical analysis 20260907
 
 on:
   push:
@@ -23,7 +23,7 @@ jobs:
           mkdir -p ~/.runpod
           printf '{}\n' > ~/.runpod/.runpod.yaml
           /tmp/runpodctl config --apiKey "$RUNPOD_API_KEY" >/dev/null
-      - name: Delete superseded heavy canonical analysis Pod
+      - name: Delete failed presigned canonical analysis Pod
         run: |
           set -euo pipefail
-          /tmp/runpodctl pod delete 5i9dgr4xlakug6
+          /tmp/runpodctl pod delete 1osv14yq1bl28j
