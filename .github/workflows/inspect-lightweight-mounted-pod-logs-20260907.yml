@@ -21,7 +21,7 @@ jobs:
           set +e
           curl -sS --no-buffer --max-time 12 --fail-with-body \
             --request GET \
-            --url 'https://v2-rest.runpod.io/v2/pods/qg3m8qgz2yrx9o/logs' \
+            --url 'https://v2-rest.runpod.io/v2/pods/v2qaq9mxov35wc/logs' \
             --header "Authorization: Bearer $RUNPOD_API_KEY"
           rc=$?
           set -e
