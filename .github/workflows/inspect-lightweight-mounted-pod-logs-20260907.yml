@@ -1,0 +1,24 @@
+name: Inspect lightweight mounted Pod logs 20260907
+
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-lightweight-mounted-pod-logs-20260907.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  logs:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Fetch RunPod host/container logs
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          set -euo pipefail
+          curl -sS --fail-with-body \
+            --request GET \
+            --url 'https://v2-rest.runpod.io/v2/pods/qg3m8qgz2yrx9o/logs' \
+            --header "Authorization: Bearer $RUNPOD_API_KEY"
