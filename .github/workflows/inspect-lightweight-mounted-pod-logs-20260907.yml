@@ -18,7 +18,13 @@ jobs:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
         run: |
           set -euo pipefail
-          curl -sS --fail-with-body \
+          set +e
+          curl -sS --no-buffer --max-time 12 --fail-with-body \
             --request GET \
             --url 'https://v2-rest.runpod.io/v2/pods/qg3m8qgz2yrx9o/logs' \
             --header "Authorization: Bearer $RUNPOD_API_KEY"
+          rc=$?
+          set -e
+          if [[ "$rc" -ne 0 && "$rc" -ne 28 ]]; then
+            exit "$rc"
+          fi
