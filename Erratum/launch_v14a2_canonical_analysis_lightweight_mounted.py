@@ -25,7 +25,7 @@ EXPECTED_DATACENTER = "EU-RO-1"
 EXACT_GPU = "NVIDIA RTX PRO 4500 Blackwell"
 LIGHT_IMAGE = "python:3.11.16-slim-bookworm"
 
-base.JOB_ID = "v14a2-canonical-analysis-lightweight-mounted-euro4500-20260907"
+base.JOB_ID = "v14a2-canonical-analysis-lightweight-mounted-euro4500-r2-20260907"
 base.CANDIDATE_GPUS = [EXACT_GPU]
 base.EXPECTED_IMAGE = LIGHT_IMAGE
 os.environ["RUNPOD_IMAGE_NAME"] = LIGHT_IMAGE
@@ -76,7 +76,7 @@ git fetch --depth 1 origin {base.AUDIT_CODE_SHA}
 git checkout --detach FETCH_HEAD
 test "$(git rev-parse HEAD)" = "{base.AUDIT_CODE_SHA}"
 python -m py_compile Erratum/canonical_analysis_v14a2.py scripts/runpod_canonical_analysis_worker.py
-python -m pip install --disable-pip-version-check --index-url {base.TORCH_INDEX} --reinstall torch=={base.TORCH_VERSION}
+python -m pip install --disable-pip-version-check --index-url {base.TORCH_INDEX} torch=={base.TORCH_VERSION}
 python -m pip install --disable-pip-version-check 'numpy>=1.26,<3' 'tokenizers>=0.15,<1' 'tqdm>=4.66,<5'
 python -c "import torch; assert torch.__version__.startswith('{base.TORCH_VERSION}'); assert torch.cuda.is_available(); print(f'[canonical-analysis-runtime] torch={{torch.__version__}} cuda={{torch.version.cuda}} device={{torch.cuda.get_device_name(0)}}')"
 python scripts/runpod_canonical_analysis_worker.py
