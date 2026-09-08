@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "id": "ardor-canonical-analysis-presigned-result-read-20260905",
+  "id": "ardor-canonical-analysis-lightweight-mounted-euro4500-r2-result-read-20260908",
   "kind": "storage",
   "storage": {
     "operation": "read_text",
-    "path": "ardor-control/runs/v14a2-canonical-analysis-presigned-s3-20260905/run-1788597552-3b1fff23/canonical_analysis.json",
+    "path": "ardor-control/runs/v14a2-canonical-analysis-lightweight-mounted-euro4500-r2-20260907/run-1788772837-377c95fd/canonical_analysis.json",
     "max_bytes": 1048576
   }
 }
