@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "ardor-v14a2-runs-prefix-list-20260909",
+  "kind": "storage",
+  "storage": {
+    "operation": "list",
+    "path": "Ardor/training/runs/",
+    "max_items": 1000,
+    "shallow": true
+  }
+}
