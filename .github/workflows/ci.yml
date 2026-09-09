@@ -43,6 +43,12 @@ jobs:
           python -m py_compile Praetor/GUI_Cortex.py
           python -m py_compile Hephaestus/runpod_train_entry.py
           python -m py_compile Erratum/canonical_migrate_v14a2.py
+          python -m py_compile Erratum/canonical_contract_v14a2.py
+          python -m py_compile Erratum/canonical_eval_v14a2.py
+          python -m py_compile Erratum/canonical_analysis_v14a2.py
+          python -m py_compile Erratum/build_v14a3_behavior_data.py
+          python -m py_compile Erratum/v14a3_diagnostics.py
+          python -m py_compile Erratum/ardor_v14a3_behavior_first_trainer.py
           python -m py_compile Erratum/launch_v14a2_canonical_migration.py
           python -m py_compile Erratum/launch_v14a2_canonical_analysis_presigned.py
           python -m py_compile scripts/runpod_worker.py
