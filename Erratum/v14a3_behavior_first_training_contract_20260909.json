@@ -28,14 +28,9 @@
     "batch_rows": 4
   },
   "freeze_policy": {
-    "historical_v14a2": "none",
-    "v14a3": {
-      "token_embed_and_tied_lm_head": "frozen",
-      "blocks_0_through_23": "frozen",
-      "blocks_24_through_32": "trainable",
-      "final_norm": "trainable"
-    },
-    "rationale": "The recovered canonical analysis remains weak through block_24 and separates sharply by block_32/final_norm; freezing the tied embedding/head also avoids changing the vocabulary basis while late hidden states learn to land on existing output directions."
+    "historical_v14a2": "none; optimizer received every parameter with requires_grad=True",
+    "v14a3": "none by default; preserve the verified historical all-parameter policy while changing supervision first",
+    "rationale": "The canonical analysis identifies a supervision/continuation bottleneck but does not establish that freezing early blocks or the tied embedding/LM head improves it. Freeze experiments are therefore deferred until the behavior-first signal is tested."
   },
   "route_schedule_per_16_rows": {
     "gradient_clipping": 5,
@@ -46,6 +41,12 @@
     "correlation": 1,
     "direct_answer": 1,
     "overfitting": 1
+  },
+  "source_policy": {
+    "behavior_first": "primary source for priority routes and hard collision rows",
+    "balanced_replay": "mandatory replay source for all eight routes",
+    "targeted_collision_replay": "secondary replay only when the row matches an observed required collision edge",
+    "legacy_local_margin": "diagnostic only; never sampled for v14a3 training"
   },
   "required_collision_pairs": [
     ["dropout", "overfitting"],
@@ -101,6 +102,8 @@
     "priority_routes": ["gradient_clipping", "dropout", "rag", "tokenizer"],
     "overall_behavior_bad_rate_must_improve": true,
     "priority_route_bad_rate_must_not_regress": true,
+    "priority_route_mean_bad_rate_must_improve": true,
+    "priority_route_missing_signal_rate_must_not_regress": true,
     "guard_route_max_bad_rate_regression": 0.04,
     "balanced_chosen_nll_must_improve": true,
     "balanced_chosen_top1_must_not_regress": true,
