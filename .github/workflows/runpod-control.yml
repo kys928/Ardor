@@ -88,7 +88,7 @@ jobs:
               echo "Skipping removed job manifest: $job"
               continue
             fi
-            python scripts/runpod_control.py execute --job "$job"
+            PYTHONPATH=scripts python scripts/runpod_control.py execute --job "$job"
           done < /tmp/runpod-jobs.txt
 
       - name: Start continuous RunPod supervisor
