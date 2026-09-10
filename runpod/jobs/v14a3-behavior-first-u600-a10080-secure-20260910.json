@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "id": "v14a3-behavior-first-u600-a10080-secure-20260910",
+  "kind": "compute",
+  "task": {
+    "runner": "v14a3_behavior_first"
+  },
+  "gpu": {
+    "type_ids": [
+      "NVIDIA A100 80GB PCIe",
+      "NVIDIA A100-SXM4-80GB"
+    ],
+    "count": 1,
+    "cloud_type": "SECURE",
+    "container_disk_gb": 50,
+    "interruptible": false
+  },
+  "lifecycle": {
+    "mode": "detached"
+  }
+}
