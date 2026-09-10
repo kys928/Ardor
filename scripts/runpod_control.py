@@ -37,6 +37,12 @@ ACTIVE_PREFIX = "ardor-control/active/"
 HISTORY_PREFIX = "ardor-control/history/"
 RUNS_PREFIX = "ardor-control/runs/"
 TERMINAL_STATES = {"completed", "failed"}
+FIXED_PURPOSE_RUNNERS = {
+    "infra_smoke",
+    "canonical_migrate_v14a2",
+    "canonical_eval_v14a2",
+    "v14a3_behavior_first",
+}
 
 
 def utc_now() -> str:
@@ -345,10 +351,18 @@ def effective_timeout(limits: dict[str, Any]) -> int | None:
 
 def validate_task(task: dict[str, Any]) -> None:
     runner = str(task.get("runner", ""))
-    if runner == "infra_smoke":
+    if runner in FIXED_PURPOSE_RUNNERS:
+        extra = sorted(set(task) - {"runner"})
+        if extra:
+            raise ValueError(
+                f"{runner} is fixed-purpose and accepts no task fields beyond runner; unexpected: {extra}"
+            )
         return
     if runner != "ardor_promptgen":
-        raise ValueError("Supported task runners are 'infra_smoke' and 'ardor_promptgen'")
+        raise ValueError(
+            "Supported task runners are 'ardor_promptgen' and fixed-purpose Ardor runners: "
+            f"{sorted(FIXED_PURPOSE_RUNNERS)}"
+        )
     stage = str(task.get("stage", ""))
     if stage not in {"lm_base", "stabilize", "sft"}:
         raise ValueError("ardor_promptgen stage must be lm_base, stabilize, or sft")
