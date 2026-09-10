@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "v14a3-compatible-status-read-20260910",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "ardor-control/runs/v14a3-behavior-first-u600-compatible-secure-20260910/run-1789037638-a4739e16/status.json",
+    "max_bytes": 65536,
+    "encoding": "utf-8"
+  }
+}
