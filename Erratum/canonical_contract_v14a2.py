@@ -19,11 +19,21 @@ CANONICAL_CHECKPOINT_SIZE = int(CONTRACT["checkpoint"]["size_bytes"])
 CANONICAL_CHECKPOINT_SHA256 = str(CONTRACT["checkpoint"]["sha256"])
 MODEL_CONFIG = dict(CONTRACT["model_config"])
 TOKENIZER_PATH = Path(CONTRACT["tokenizer"]["path"])
+TOKENIZER_SIZE = int(CONTRACT["tokenizer"]["size_bytes"])
+TOKENIZER_SHA256 = str(CONTRACT["tokenizer"]["sha256"])
 EXPECTED_VOCAB_SIZE = int(CONTRACT["tokenizer"]["vocab_size"])
 EXPECTED_SPECIAL_IDS = {
     str(token): int(token_id)
     for token, token_id in CONTRACT["tokenizer"]["special_token_ids"].items()
 }
+
+
+def sha256_file(path: Path, chunk_bytes: int = 16 * 1024 * 1024) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(chunk_bytes), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def canonical_parent_reference() -> dict[str, Any]:
@@ -35,6 +45,8 @@ def canonical_parent_reference() -> dict[str, Any]:
         "checkpoint_sha256": CANONICAL_CHECKPOINT_SHA256,
         "model_config": dict(MODEL_CONFIG),
         "tokenizer_path": str(TOKENIZER_PATH),
+        "tokenizer_size_bytes": TOKENIZER_SIZE,
+        "tokenizer_sha256": TOKENIZER_SHA256,
         "tokenizer_vocab_size": EXPECTED_VOCAB_SIZE,
         "tokenizer_special_ids": dict(EXPECTED_SPECIAL_IDS),
     }
@@ -58,37 +70,51 @@ def validate_static_contract() -> None:
         raise RuntimeError(f"Canonical tokenizer special IDs changed: {EXPECTED_SPECIAL_IDS}")
     if len(CANONICAL_CHECKPOINT_SHA256) != 64:
         raise RuntimeError("Canonical checkpoint SHA-256 is malformed")
+    if len(TOKENIZER_SHA256) != 64:
+        raise RuntimeError("Canonical tokenizer SHA-256 is malformed")
 
 
 def validate_local_files(*, verify_checkpoint_sha256: bool = False) -> dict[str, Any]:
-    """Validate local checkpoint/tokenizer identity; SHA streaming is optional because the file is ~12 GB."""
+    """Validate local checkpoint/tokenizer identity; tokenizer hashing is always enforced."""
     validate_static_contract()
     if not CANONICAL_CHECKPOINT.is_file():
         raise FileNotFoundError(CANONICAL_CHECKPOINT)
-    size = CANONICAL_CHECKPOINT.stat().st_size
-    if size != CANONICAL_CHECKPOINT_SIZE:
+    checkpoint_size = CANONICAL_CHECKPOINT.stat().st_size
+    if checkpoint_size != CANONICAL_CHECKPOINT_SIZE:
         raise RuntimeError(
-            f"Canonical checkpoint size mismatch: expected={CANONICAL_CHECKPOINT_SIZE} actual={size}"
+            f"Canonical checkpoint size mismatch: expected={CANONICAL_CHECKPOINT_SIZE} actual={checkpoint_size}"
         )
-    observed_sha = None
+    checkpoint_sha = None
     if verify_checkpoint_sha256:
-        digest = hashlib.sha256()
-        with CANONICAL_CHECKPOINT.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(16 * 1024 * 1024), b""):
-                digest.update(chunk)
-        observed_sha = digest.hexdigest()
-        if observed_sha != CANONICAL_CHECKPOINT_SHA256:
+        checkpoint_sha = sha256_file(CANONICAL_CHECKPOINT)
+        if checkpoint_sha != CANONICAL_CHECKPOINT_SHA256:
             raise RuntimeError(
-                f"Canonical checkpoint SHA mismatch: expected={CANONICAL_CHECKPOINT_SHA256} actual={observed_sha}"
+                f"Canonical checkpoint SHA mismatch: expected={CANONICAL_CHECKPOINT_SHA256} actual={checkpoint_sha}"
             )
+
     if not TOKENIZER_PATH.is_file():
         raise FileNotFoundError(TOKENIZER_PATH)
+    tokenizer_size = TOKENIZER_PATH.stat().st_size
+    if tokenizer_size != TOKENIZER_SIZE:
+        raise RuntimeError(
+            f"Canonical tokenizer size mismatch: expected={TOKENIZER_SIZE} actual={tokenizer_size}"
+        )
+    tokenizer_sha = sha256_file(TOKENIZER_PATH, chunk_bytes=4 * 1024 * 1024)
+    if tokenizer_sha != TOKENIZER_SHA256:
+        raise RuntimeError(
+            f"Canonical tokenizer SHA mismatch: expected={TOKENIZER_SHA256} actual={tokenizer_sha}"
+        )
+
     return {
-        "checkpoint_size_bytes": size,
+        "checkpoint_size_bytes": checkpoint_size,
         "checkpoint_sha256_expected": CANONICAL_CHECKPOINT_SHA256,
-        "checkpoint_sha256_observed": observed_sha,
-        "sha256_verified_this_run": bool(verify_checkpoint_sha256),
+        "checkpoint_sha256_observed": checkpoint_sha,
+        "checkpoint_sha256_verified_this_run": bool(verify_checkpoint_sha256),
         "tokenizer_path": str(TOKENIZER_PATH),
+        "tokenizer_size_bytes": tokenizer_size,
+        "tokenizer_sha256_expected": TOKENIZER_SHA256,
+        "tokenizer_sha256_observed": tokenizer_sha,
+        "tokenizer_sha256_verified_this_run": True,
     }
 
 
