@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "id": "v14a3-live-summary-read-20260910-1509",
+  "kind": "storage",
+  "task": {
+    "operation": "read_text",
+    "key": "Ardor/training/runs/sft_v14a3_behavior_first_semantic_landing_u600/run_summary.json"
+  }
+}
