@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "v14a3-live-metrics-read-correct-20260910-1510",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/runs/sft_v14a3_behavior_first_semantic_landing_u600/metrics.jsonl",
+    "max_bytes": 1048576,
+    "encoding": "utf-8"
+  }
+}
