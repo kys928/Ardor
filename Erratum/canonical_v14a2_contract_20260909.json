@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "designation": "canonical_v14a2_explicit_24_head_33_layer_contract",
   "frozen_at_utc": "2026-09-09T20:20:00Z",
   "supersedes": "Erratum/canonical_v14a2_baseline_20260904.json#stale-36-layer-model-config",
@@ -27,6 +27,9 @@
   },
   "tokenizer": {
     "path": "/workspace/Ardor/tokenizer_v9.json",
+    "size_bytes": 4015364,
+    "sha256": "f4a6bb3e1f9cabf0ecf7a0a728bc78401f2cda2400033902df6cd7b5e6257514",
+    "sha256_method": "full-object streaming SHA-256 over the exact RunPod Network Volume object",
     "vocab_size": 52224,
     "special_token_ids": {
       "<pad>": 0,
@@ -54,15 +57,18 @@
       "checkpoint.size_bytes",
       "model_config",
       "tokenizer.path",
+      "tokenizer.size_bytes",
+      "tokenizer.sha256",
       "tokenizer.vocab_size",
       "tokenizer.special_token_ids"
     ],
-    "note": "Future v14 training/evaluation artifacts must embed a canonical_parent reference containing the exact checkpoint SHA-256 and tokenizer-v9 contract."
+    "note": "Future v14 training/evaluation artifacts must embed a canonical_parent reference containing the exact checkpoint SHA-256 and tokenizer-v9 byte/semantic contract."
   },
   "provenance": {
     "canonical_migration_script": "Erratum/canonical_migrate_v14a2.py",
     "canonical_evaluator": "Erratum/canonical_eval_v14a2.py",
     "canonical_analysis": "Erratum/canonical_analysis_v14a2.py",
-    "analysis_result_s3_key": "ardor-control/runs/v14a2-canonical-analysis-lightweight-mounted-euro4500-r2-20260907/run-1788772837-377c95fd/canonical_analysis.json"
+    "analysis_result_s3_key": "ardor-control/runs/v14a2-canonical-analysis-lightweight-mounted-euro4500-r2-20260907/run-1788772837-377c95fd/canonical_analysis.json",
+    "tokenizer_hash_workflow_run_id": 34401641716
   }
 }
