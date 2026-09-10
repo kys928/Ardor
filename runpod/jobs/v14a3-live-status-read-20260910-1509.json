@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "id": "v14a3-live-status-read-20260910-1509",
+  "kind": "storage",
+  "task": {
+    "operation": "read_text",
+    "key": "ardor-control/runs/v14a3-behavior-first-u600-compatible-secure-20260910/run-1789037638-a4739e16/status.json"
+  }
+}
