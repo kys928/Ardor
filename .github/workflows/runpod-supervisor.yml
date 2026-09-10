@@ -41,7 +41,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          python scripts/runpod_supervisor.py \
+          PYTHONPATH=scripts python scripts/runpod_supervisor.py \
             --poll-seconds 30 \
             --lease-minutes 300 \
             --max-consecutive-errors 5
