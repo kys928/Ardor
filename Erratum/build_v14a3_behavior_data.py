@@ -209,7 +209,8 @@ ELABORATIONS = {
 
 
 def norm(text: str) -> str:
-    return re.sub(r"\s+", " ", text.strip().lower())
+    normalized = re.sub(r"[-‐‑‒–—]+", " ", text.strip().lower())
+    return re.sub(r"\s+", " ", normalized)
 
 
 def route_signal(route: str, first_sentence: str) -> bool:
