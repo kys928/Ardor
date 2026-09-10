@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "v14a3-live-final-behavior-read-correct-20260910-1514",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/runs/sft_v14a3_behavior_first_semantic_landing_u600/final_behavior_outputs.json",
+    "max_bytes": 1048576,
+    "encoding": "utf-8"
+  }
+}
