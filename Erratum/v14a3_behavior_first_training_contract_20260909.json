@@ -1,0 +1,126 @@
+{
+  "schema_version": 2,
+  "designation": "v14a3_behavior_first_semantic_landing",
+  "canonical_parent": {
+    "contract": "Erratum/canonical_v14a2_contract_20260909.json",
+    "checkpoint_sha256": "500252cead0b6ff9825ff9c4ef8e878c00403f866f23911133c26fff56999816",
+    "tokenizer": "/workspace/Ardor/tokenizer_v9.json",
+    "tokenizer_size_bytes": 4015364,
+    "tokenizer_sha256": "f4a6bb3e1f9cabf0ecf7a0a728bc78401f2cda2400033902df6cd7b5e6257514",
+    "tokenizer_vocab_size": 52224
+  },
+  "historical_reference": "Erratum/v14a2_promoted_training_provenance_20260909.json",
+  "objective": {
+    "primary": "chosen-answer continuation cross entropy with prompt tokens masked from loss",
+    "continuation_ce_weight": 1.0,
+    "local_margin_weight": 0.0,
+    "geometry_loss_weight": 0.0,
+    "rationale": "Canonical analysis shows late-layer route structure is substantially stronger than realized continuation behavior; geometry is therefore evaluated as a secondary gate instead of optimized as the primary objective."
+  },
+  "optimizer": {
+    "family": "AdamW",
+    "lr": 2e-08,
+    "lr_source": "exact promoted v14a2 u600 run_config",
+    "lr_schedule": "cosine",
+    "min_lr_ratio": 0.2,
+    "warmup_updates": 20,
+    "weight_decay": 0.0,
+    "grad_clip": 0.5,
+    "max_updates": 600,
+    "batch_rows": 4
+  },
+  "freeze_policy": {
+    "historical_v14a2": "none; optimizer received every parameter with requires_grad=True",
+    "v14a3": "none by default; preserve the verified historical all-parameter policy while changing supervision first",
+    "rationale": "The canonical analysis identifies a supervision/continuation bottleneck but does not establish that freezing early blocks or the tied embedding/LM head improves it. Freeze experiments are therefore deferred until the behavior-first signal is tested."
+  },
+  "route_schedule_per_16_rows": {
+    "gradient_clipping": 5,
+    "dropout": 3,
+    "rag": 2,
+    "tokenizer": 2,
+    "checkpoint": 1,
+    "correlation": 1,
+    "direct_answer": 1,
+    "overfitting": 1
+  },
+  "source_policy": {
+    "behavior_first": "primary source for priority routes and hard collision rows",
+    "balanced_replay": "mandatory replay source for all eight routes",
+    "targeted_collision_replay": "secondary replay only when the row matches an observed required collision edge",
+    "legacy_local_margin": "diagnostic only; never sampled for v14a3 training"
+  },
+  "required_collision_pairs": [
+    ["dropout", "overfitting"],
+    ["dropout", "correlation"],
+    ["gradient_clipping", "overfitting"],
+    ["gradient_clipping", "checkpoint"],
+    ["rag", "direct_answer"],
+    ["rag", "tokenizer"],
+    ["tokenizer", "direct_answer"]
+  ],
+  "data": {
+    "new_behavior_continuations": "/workspace/Ardor/training/data/v14_v3/dataset_v14a3_behavior_first.jsonl",
+    "balanced_replay": {
+      "path": "/workspace/Ardor/training/data/v14_v3/dataset_v3b_route_contrastive_balanced.jsonl",
+      "sha256": "b9d2c4e298b088cc5ef564dc8f7766fb8e66a01c0046b57c56512a27843b2938",
+      "rows": 4000
+    },
+    "targeted_collision_replay": {
+      "path": "/workspace/Ardor/training/data/v14_v3/dataset_v14b3_targeted_route_collisions.jsonl",
+      "sha256": "3319c5358cacc0366de59d3ca53f57742ca1770ed7ce2a4fc9abd88c9f01cd64",
+      "rows": 3000,
+      "use_only_required_edges": true
+    },
+    "holdout": {
+      "path": "/workspace/Ardor/training/data/v14_v3/dataset_v3_holdout_audit.jsonl",
+      "sha256": "9f1b6b70a65750fc68ec577c8ce8135dfa1ab6881001c70d77a552bc43fef121",
+      "rows": 2000
+    },
+    "legacy_local_margin": {
+      "path": "/workspace/Ardor/training/data/v14_v3/dataset_v14a2_local_anti_loop_margin.jsonl",
+      "sha256": "938ef13bf3eebebf051df93ce636c09b69050dd66e8840dedd39611ece001ec1",
+      "rows": 1200,
+      "training_weight": 0.0,
+      "role": "regression diagnostic only"
+    }
+  },
+  "data_quality_gates": {
+    "first_sentence_must_contain_route_signal": true,
+    "exact_holdout_anchor_overlap_allowed": false,
+    "minimum_routes": 8,
+    "required_bidirectional_collision_coverage": true,
+    "maximum_exact_chosen_duplicate_fraction": 0.15,
+    "note": "The existing balanced/targeted data are replay only because their chosen-answer diversity is low (48 unique answers in 4000 balanced rows; 36 in 3000 targeted rows)."
+  },
+  "promotion_priority": [
+    "route-wise behavior success and missing-signal rate",
+    "balanced chosen continuation NLL/top1/mean-rank",
+    "calibrated target-ranking accuracy",
+    "final hidden route geometry",
+    "loop/repetition regression guards"
+  ],
+  "promotion": {
+    "priority_routes": ["gradient_clipping", "dropout", "rag", "tokenizer"],
+    "overall_behavior_bad_rate_must_improve": true,
+    "priority_route_bad_rate_must_not_regress": true,
+    "priority_route_mean_bad_rate_must_improve": true,
+    "priority_route_missing_signal_rate_must_not_regress": true,
+    "guard_route_max_bad_rate_regression": 0.04,
+    "balanced_chosen_nll_must_improve": true,
+    "balanced_chosen_top1_must_not_regress": true,
+    "balanced_chosen_mean_rank_must_not_regress": true,
+    "calibrated_target_ranking_must_not_regress": true,
+    "final_geometry_prototype_accuracy_must_not_regress": true,
+    "final_geometry_priority_route_mean_gap_tolerance": 0.02,
+    "loop_rate_max_regression": 0.008,
+    "repetition_rate_max_regression": 0.01,
+    "raw_eight_target_nll_classifier_is_gating": false
+  },
+  "calibrated_target_ranking": {
+    "method": "subtract each fixed target sentence's mean NLL on a deterministic balanced calibration set before ranking targets on a prompt",
+    "calibration_rows_per_route": 8,
+    "raw_target_scores_retained_for_diagnostics": true,
+    "raw_target_scores_used_for_promotion": false
+  }
+}

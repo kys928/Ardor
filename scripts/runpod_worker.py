@@ -19,6 +19,7 @@ CORTEX_ROOT = REPO_ROOT / "Cerebrum" / "Cortex"
 PERSISTENT_ROOT = Path("/workspace/Ardor")
 CONTROL_ROOT = Path("/workspace/ardor-control/runs")
 TRAIN_ENTRY = REPO_ROOT / "Hephaestus" / "runpod_train_entry.py"
+V14A3_ENTRY = REPO_ROOT / "Erratum" / "ardor_v14a3_behavior_first_trainer.py"
 ALLOWED_STAGES = {"lm_base", "stabilize", "sft"}
 PATH_ARGS = {
     "resume": "--resume",
@@ -37,6 +38,12 @@ ALLOWED_RUNNERS = {
     "infra_smoke",
     "canonical_migrate_v14a2",
     "canonical_eval_v14a2",
+    "v14a3_behavior_first",
+}
+FIXED_PURPOSE_RUNNERS = {
+    "canonical_migrate_v14a2",
+    "canonical_eval_v14a2",
+    "v14a3_behavior_first",
 }
 
 
@@ -302,7 +309,7 @@ def run() -> int:
     runner = str(task.get("runner", ""))
     if runner not in ALLOWED_RUNNERS:
         raise ValueError(f"Unsupported task.runner: {runner!r}")
-    if runner in {"canonical_migrate_v14a2", "canonical_eval_v14a2"}:
+    if runner in FIXED_PURPOSE_RUNNERS:
         extra = sorted(set(task) - {"runner"})
         if extra:
             raise ValueError(
@@ -322,6 +329,8 @@ def run() -> int:
         command = ["internal:canonical_migrate_v14a2"]
     elif runner == "canonical_eval_v14a2":
         command = ["internal:canonical_eval_v14a2"]
+    elif runner == "v14a3_behavior_first":
+        command = [sys.executable, str(V14A3_ENTRY), "--verify-parent-sha256"]
     else:
         command = build_promptgen_command(job, job_id, control_run_id)
 

@@ -1,0 +1,74 @@
+{
+  "schema_version": 3,
+  "designation": "canonical_v14a2_explicit_24_head_33_layer_contract",
+  "frozen_at_utc": "2026-09-09T20:20:00Z",
+  "supersedes": "Erratum/canonical_v14a2_baseline_20260904.json#stale-36-layer-model-config",
+  "checkpoint": {
+    "path": "/workspace/Ardor/training/runs/v14_promoted_candidates/v14a2_local_anti_loop_margin_best_u600_CANONICAL_FULLSTATE.pt",
+    "size_bytes": 12182834443,
+    "sha256": "500252cead0b6ff9825ff9c4ef8e878c00403f866f23911133c26fff56999816",
+    "sha256_method": "full-object streaming SHA-256 over the exact RunPod Network Volume object",
+    "source_update": 600,
+    "source_trainer": "ardor_v14a2_local_anti_loop_margin_trainer"
+  },
+  "model_config": {
+    "vocab_size": 52224,
+    "hidden_size": 1536,
+    "n_layers": 33,
+    "n_heads": 24,
+    "max_len": 2048,
+    "ff_mult": 4,
+    "dropout": 0.0,
+    "attn_dropout": 0.0,
+    "resid_dropout": 0.0,
+    "layernorm_eps": 0.00001,
+    "use_rope": true,
+    "rope_theta": 10000.0
+  },
+  "tokenizer": {
+    "path": "/workspace/Ardor/tokenizer_v9.json",
+    "size_bytes": 4015364,
+    "sha256": "f4a6bb3e1f9cabf0ecf7a0a728bc78401f2cda2400033902df6cd7b5e6257514",
+    "sha256_method": "full-object streaming SHA-256 over the exact RunPod Network Volume object",
+    "vocab_size": 52224,
+    "special_token_ids": {
+      "<pad>": 0,
+      "<unk>": 1,
+      "<bos>": 2,
+      "<eos>": 3,
+      "<|user|>": 4,
+      "<|assistant|>": 5,
+      "<|system|>": 6,
+      "<|eot|>": 7
+    }
+  },
+  "strict_load_contract": {
+    "wrapper_keys": ["model", "optimizer", "meta"],
+    "architecture_source": "checkpoint.meta.model_config",
+    "architecture_inference_allowed": false,
+    "partial_load_allowed": false,
+    "missing_keys_allowed": false,
+    "unexpected_keys_allowed": false
+  },
+  "reference_policy": {
+    "required_for_future_v14_runs": true,
+    "required_fields": [
+      "checkpoint.sha256",
+      "checkpoint.size_bytes",
+      "model_config",
+      "tokenizer.path",
+      "tokenizer.size_bytes",
+      "tokenizer.sha256",
+      "tokenizer.vocab_size",
+      "tokenizer.special_token_ids"
+    ],
+    "note": "Future v14 training/evaluation artifacts must embed a canonical_parent reference containing the exact checkpoint SHA-256 and tokenizer-v9 byte/semantic contract."
+  },
+  "provenance": {
+    "canonical_migration_script": "Erratum/canonical_migrate_v14a2.py",
+    "canonical_evaluator": "Erratum/canonical_eval_v14a2.py",
+    "canonical_analysis": "Erratum/canonical_analysis_v14a2.py",
+    "analysis_result_s3_key": "ardor-control/runs/v14a2-canonical-analysis-lightweight-mounted-euro4500-r2-20260907/run-1788772837-377c95fd/canonical_analysis.json",
+    "tokenizer_hash_workflow_run_id": 34401641716
+  }
+}

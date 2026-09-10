@@ -1,7 +1,14 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "designation": "canonical_v14a2_explicit_24_head_baseline",
   "frozen_at_utc": "2026-09-04T12:26:51Z",
+  "corrected_at_utc": "2026-09-09T20:20:00Z",
+  "canonical_contract": "Erratum/canonical_v14a2_contract_20260909.json",
+  "correction": {
+    "reason": "The original descriptive baseline recorded 36 layers, but the exact migrated checkpoint meta.model_config and strict ArdorDecoder load contract specify 33 layers.",
+    "superseded_model_config": {"n_layers": 36},
+    "authoritative_source": "checkpoint.meta.model_config"
+  },
   "checkpoint": {
     "path": "/workspace/Ardor/training/runs/v14_promoted_candidates/v14a2_local_anti_loop_margin_best_u600_CANONICAL_FULLSTATE.pt",
     "size_bytes": 12182834443,
@@ -22,14 +29,17 @@
   },
   "model_config": {
     "vocab_size": 52224,
-    "d_model": 1536,
-    "n_layers": 36,
+    "hidden_size": 1536,
+    "n_layers": 33,
     "n_heads": 24,
-    "max_seq_len": 2048,
+    "max_len": 2048,
+    "ff_mult": 4,
     "dropout": 0.0,
+    "attn_dropout": 0.0,
+    "resid_dropout": 0.0,
+    "layernorm_eps": 0.00001,
     "use_rope": true,
-    "rope_theta": 10000.0,
-    "layer_norm_eps": 0.00001
+    "rope_theta": 10000.0
   },
   "architecture_contract": {
     "source": "checkpoint.meta.model_config",
