@@ -4,3 +4,4 @@ tqdm
 nltk
 numpy
 pytest
+boto3
