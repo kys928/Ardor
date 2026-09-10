@@ -4,12 +4,14 @@ from collections import Counter
 import json
 from pathlib import Path
 
-from Erratum.build_v14a3_behavior_data import COLLISIONS, ROUTES, build_rows, validate
+from Erratum.build_v14a3_behavior_data import COLLISIONS, ROUTES, build_rows, norm, validate
 from Erratum.canonical_contract_v14a2 import (
     CANONICAL_CHECKPOINT_SHA256,
     EXPECTED_SPECIAL_IDS,
     EXPECTED_VOCAB_SIZE,
     MODEL_CONFIG,
+    TOKENIZER_SHA256,
+    TOKENIZER_SIZE,
     validate_static_contract,
 )
 from Erratum.ardor_v14a3_behavior_first_trainer import ROUTE_SEQUENCE
@@ -25,6 +27,8 @@ def test_canonical_v14a2_contract_is_exact_33_layer_tokenizer_v9_contract():
     assert MODEL_CONFIG["n_heads"] == 24
     assert MODEL_CONFIG["hidden_size"] == 1536
     assert EXPECTED_VOCAB_SIZE == 52224
+    assert TOKENIZER_SIZE == 4015364
+    assert TOKENIZER_SHA256 == "f4a6bb3e1f9cabf0ecf7a0a728bc78401f2cda2400033902df6cd7b5e6257514"
     assert EXPECTED_SPECIAL_IDS == {
         "<pad>": 0,
         "<unk>": 1,
@@ -47,6 +51,9 @@ def test_v14a3_training_contract_changes_signal_not_architecture_tricks():
         "geometry_loss_weight": 0.0,
         "rationale": contract["objective"]["rationale"],
     }
+    assert contract["canonical_parent"]["checkpoint_sha256"] == CANONICAL_CHECKPOINT_SHA256
+    assert contract["canonical_parent"]["tokenizer_size_bytes"] == TOKENIZER_SIZE
+    assert contract["canonical_parent"]["tokenizer_sha256"] == TOKENIZER_SHA256
     assert contract["optimizer"]["lr"] == 2e-8
     assert contract["optimizer"]["max_updates"] == 600
     assert contract["optimizer"]["batch_rows"] == 4
@@ -62,6 +69,12 @@ def test_v14a3_route_pressure_cycle_matches_contract():
     expected = {k: int(v) for k, v in contract["route_schedule_per_16_rows"].items()}
     assert len(ROUTE_SEQUENCE) == 16
     assert dict(Counter(ROUTE_SEQUENCE)) == expected
+
+
+def test_semantic_normalization_treats_hyphens_as_word_boundaries():
+    assert norm("direct-answer") == "direct answer"
+    assert norm("direct–answer") == "direct answer"
+    assert norm("direct—answer") == "direct answer"
 
 
 def test_behavior_first_dataset_is_varied_balanced_and_collision_complete():
