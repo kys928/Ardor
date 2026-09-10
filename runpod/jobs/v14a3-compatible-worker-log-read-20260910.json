@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "v14a3-compatible-worker-log-read-20260910",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "ardor-control/runs/v14a3-behavior-first-u600-compatible-secure-20260910/run-1789037638-a4739e16/worker.log",
+    "max_bytes": 262144,
+    "encoding": "utf-8"
+  }
+}
