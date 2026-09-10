@@ -1,10 +1,12 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "designation": "v14a3_behavior_first_semantic_landing",
   "canonical_parent": {
     "contract": "Erratum/canonical_v14a2_contract_20260909.json",
     "checkpoint_sha256": "500252cead0b6ff9825ff9c4ef8e878c00403f866f23911133c26fff56999816",
     "tokenizer": "/workspace/Ardor/tokenizer_v9.json",
+    "tokenizer_size_bytes": 4015364,
+    "tokenizer_sha256": "f4a6bb3e1f9cabf0ecf7a0a728bc78401f2cda2400033902df6cd7b5e6257514",
     "tokenizer_vocab_size": 52224
   },
   "historical_reference": "Erratum/v14a2_promoted_training_provenance_20260909.json",
