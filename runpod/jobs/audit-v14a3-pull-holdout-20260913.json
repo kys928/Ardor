@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "audit-v14a3-pull-holdout-20260913",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/data/v14_v3/dataset_v3_holdout_audit.jsonl",
+    "max_bytes": 4194304,
+    "encoding": "utf-8"
+  }
+}
