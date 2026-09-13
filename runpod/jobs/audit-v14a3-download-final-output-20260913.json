@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "audit-v14a3-download-final-output-20260913",
+  "kind": "storage",
+  "storage": {
+    "operation": "download",
+    "path": "Ardor/training/runs/sft_v14a3_behavior_first_semantic_landing_u600/final_behavior_outputs.json",
+    "max_bytes": 10485760
+  }
+}
