@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "ardor-v14a4-eval-u0100-read-20260913",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/runs/sft_v14a4_family_balanced_semantic_landing_probe_u100/eval_u0100.json",
+    "max_bytes": 50000,
+    "encoding": "utf-8"
+  }
+}
