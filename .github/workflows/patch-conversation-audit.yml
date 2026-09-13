@@ -6,6 +6,7 @@ on:
       - ardor-conversation-audit-20260913
     paths:
       - scripts/patch_conversation_audit.py
+      - scripts/fix_patch_generator.py
       - .github/workflows/patch-conversation-audit.yml
 
 permissions:
@@ -26,6 +27,9 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Repair patch generator quoting
+        run: python scripts/fix_patch_generator.py
+
       - name: Apply scientific patch
         run: python scripts/patch_conversation_audit.py
 
@@ -43,7 +47,7 @@ jobs:
 
       - name: Commit final scientific diff
         run: |
-          rm scripts/patch_conversation_audit.py
+          rm scripts/patch_conversation_audit.py scripts/fix_patch_generator.py
           rm .github/workflows/patch-conversation-audit.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
