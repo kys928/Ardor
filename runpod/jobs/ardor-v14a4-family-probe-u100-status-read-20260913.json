@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "ardor-v14a4-family-probe-u100-status-read-20260913",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "ardor-control/runs/ardor-v14a4-family-probe-u100-20260913/run-1789316955-a0276e74/status.json",
+    "max_bytes": 65536,
+    "encoding": "utf-8"
+  }
+}
