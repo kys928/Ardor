@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "audit-v14a3-download-balanced-20260913",
+  "kind": "storage",
+  "storage": {
+    "operation": "download",
+    "path": "Ardor/training/data/v14_v3/dataset_v3b_route_contrastive_balanced.jsonl",
+    "max_bytes": 10485760
+  }
+}
