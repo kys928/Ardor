@@ -1,0 +1,149 @@
+{
+  "schema_version": 1,
+  "designation": "v14a4_family_balanced_semantic_landing",
+  "canonical_parent": {
+    "contract": "Erratum/canonical_v14a2_contract_20260909.json",
+    "checkpoint_sha256": "500252cead0b6ff9825ff9c4ef8e878c00403f866f23911133c26fff56999816",
+    "tokenizer": "/workspace/Ardor/tokenizer_v9.json",
+    "tokenizer_size_bytes": 4015364,
+    "tokenizer_sha256": "f4a6bb3e1f9cabf0ecf7a0a728bc78401f2cda2400033902df6cd7b5e6257514",
+    "tokenizer_vocab_size": 52224
+  },
+  "scientific_change": {
+    "from": "v14a3 full-answer continuation CE with route/source-balanced replay",
+    "to": "same continuation CE/optimizer/parent, but behavior supervision and fast evaluation are balanced by route x semantic_family with independent paraphrases",
+    "architecture_change": false,
+    "optimizer_change": false,
+    "freeze_change": false,
+    "loss_change": false
+  },
+  "objective": {
+    "primary": "chosen-answer continuation cross entropy with prompt tokens masked from loss",
+    "continuation_ce_weight": 1.0,
+    "local_margin_weight": 0.0,
+    "geometry_loss_weight": 0.0
+  },
+  "optimizer": {
+    "family": "AdamW",
+    "lr": 2e-08,
+    "lr_schedule": "cosine",
+    "min_lr_ratio": 0.2,
+    "warmup_updates": 20,
+    "weight_decay": 0.0,
+    "grad_clip": 0.5,
+    "max_updates": 600,
+    "batch_rows": 4
+  },
+  "freeze_policy": "none",
+  "route_schedule_per_16_rows": {
+    "gradient_clipping": 5,
+    "dropout": 3,
+    "rag": 2,
+    "tokenizer": 2,
+    "checkpoint": 1,
+    "correlation": 1,
+    "direct_answer": 1,
+    "overfitting": 1
+  },
+  "source_cycles": {
+    "gradient_clipping": ["behavior", "behavior", "behavior", "balanced", "targeted"],
+    "dropout": ["behavior", "balanced", "targeted", "behavior"],
+    "rag": ["behavior", "balanced", "targeted", "behavior"],
+    "tokenizer": ["behavior", "balanced", "targeted", "behavior"],
+    "guards": ["balanced", "behavior", "targeted"],
+    "targeted_missing_route_fallback": "balanced before behavior",
+    "no_behavior_recycling": true
+  },
+  "expected_exposure_at_u600": {
+    "route_totals": {
+      "gradient_clipping": 750,
+      "dropout": 450,
+      "rag": 300,
+      "tokenizer": 300,
+      "checkpoint": 150,
+      "correlation": 150,
+      "direct_answer": 150,
+      "overfitting": 150
+    },
+    "behavior_unique": {
+      "gradient_clipping": 450,
+      "dropout": 225,
+      "rag": 150,
+      "tokenizer": 150,
+      "checkpoint": 50,
+      "correlation": 50,
+      "direct_answer": 50,
+      "overfitting": 50
+    }
+  },
+  "semantic_families": {
+    "gradient_clipping": ["definition_mechanism", "exploding_gradients", "norm_threshold", "optimizer_stability", "backprop_stability", "learning_rate_comparison", "false_premise_correction"],
+    "dropout": ["definition_mechanism", "train_vs_eval", "dropout_probability", "coadaptation", "regularization_generalization", "overfitting_relationship", "false_premise_correction"],
+    "rag": ["retrieval_sequence", "external_grounding", "query_matching", "context_injection", "answer_synthesis", "unsupported_claims", "model_memory_vs_retrieval", "limitations"],
+    "tokenizer": ["text_to_ids", "vocabulary", "subword_boundaries", "special_tokens", "encoding_decoding", "model_compatibility", "checkpoint_loading_mismatch", "vocabulary_version_mismatch"],
+    "checkpoint": ["saved_state", "resume_training", "evaluation_snapshot", "optimizer_state"],
+    "correlation": ["association_not_causation", "positive_negative", "confounding", "statistical_relationship"],
+    "direct_answer": ["point_first", "concise_structure", "context_after_answer", "no_preamble"],
+    "overfitting": ["train_validation_gap", "memorization", "unseen_generalization", "regularization_relation"]
+  },
+  "data": {
+    "behavior_train": {
+      "path": "/workspace/Ardor/training/data/v14_v3/dataset_v14a4_family_balanced_behavior.jsonl",
+      "builder": "Erratum/build_v14a4_family_data.py",
+      "rows": 1175,
+      "sha256": "af585f8f62a4d3fc0b84bc8c50289283fd20ab933e04d2661de37d199b36df8c"
+    },
+    "clean_family_holdout": {
+      "path": "/workspace/Ardor/training/data/v14_v3/dataset_v14a4_family_balanced_holdout.jsonl",
+      "builder": "Erratum/build_v14a4_family_data.py",
+      "rows": 256,
+      "sha256": "390fdcd38493799ed93646dc9b20231c5151062a7f03e787d03fc0d3496395d0",
+      "used_for_fast_training_gate": true
+    },
+    "balanced_replay": {
+      "path": "/workspace/Ardor/training/data/v14_v3/dataset_v3b_route_contrastive_balanced.jsonl",
+      "sha256": "b9d2c4e298b088cc5ef564dc8f7766fb8e66a01c0046b57c56512a27843b2938",
+      "rows": 4000
+    },
+    "targeted_collision_replay": {
+      "path": "/workspace/Ardor/training/data/v14_v3/dataset_v14b3_targeted_route_collisions.jsonl",
+      "sha256": "3319c5358cacc0366de59d3ca53f57742ca1770ed7ce2a4fc9abd88c9f01cd64",
+      "rows": 3000,
+      "required_edges_only": true,
+      "known_absent_routes": ["dropout", "correlation"]
+    },
+    "historical_holdout": {
+      "path": "/workspace/Ardor/training/data/v14_v3/dataset_v3_holdout_audit.jsonl",
+      "sha256": "9f1b6b70a65750fc68ec577c8ce8135dfa1ab6881001c70d77a552bc43fef121",
+      "rows": 2000,
+      "role": "frozen historical comparability; evaluated after the clean family gate passes and always at final"
+    }
+  },
+  "schema": {
+    "required_fields": ["id", "split", "route", "semantic_family", "prompt_style", "answer_style", "question_class", "collision_route", "prompt", "chosen"],
+    "question_classes": ["normal", "collision_comparison", "false_premise_correction"],
+    "collision_fraction_target": "8-16% of non-false-premise rows per route",
+    "exact_train_clean_holdout_prompt_overlap": 0,
+    "exact_train_historical_holdout_prompt_overlap": 0
+  },
+  "evaluation": {
+    "fast_primary": ["clean family overall success", "priority route x family macro success", "per-family regression tolerance", "false-premise correction success", "paraphrase all-pass and >=75%-pass rates", "loop/repetition guards"],
+    "secondary": ["frozen historical holdout behavior", "balanced chosen continuation NLL/top1/mean-rank"],
+    "tertiary": ["calibrated fixed-target ranking", "final hidden geometry"]
+  },
+  "promotion": {
+    "clean_overall_success_must_improve": true,
+    "priority_family_macro_success_must_improve": true,
+    "priority_family_max_regression": 0.05,
+    "false_premise_success_must_not_regress": true,
+    "paraphrase_75pct_pass_rate_must_not_regress": true,
+    "historical_bad_rate_must_not_regress": true,
+    "balanced_chosen_nll_must_improve": true,
+    "balanced_chosen_top1_must_not_regress": true,
+    "balanced_chosen_mean_rank_must_not_regress": true,
+    "calibrated_target_ranking_must_not_regress": true,
+    "final_geometry_prototype_accuracy_must_not_regress": true,
+    "loop_rate_max_regression": 0.008,
+    "repetition_rate_max_regression": 0.01
+  }
+}
