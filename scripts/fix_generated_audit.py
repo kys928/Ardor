@@ -11,7 +11,12 @@ new_system = (
 )
 if old_system not in audit:
     raise RuntimeError("Generated audit fallback-system anchor missing")
-audit_path.write_text(audit.replace(old_system, new_system, 1), encoding="utf-8")
+audit = audit.replace(old_system, new_system, 1)
+# The staging script is intentionally a raw string, so its generated source initially
+# contains doubled backslashes before n. Collapse only that exact escape pair so the
+# generated Python source uses normal \n escapes and therefore emits real newlines.
+audit = audit.replace("\\\\n", "\\n")
+audit_path.write_text(audit, encoding="utf-8")
 
 # Rewrite the tiny focused test directly so string-escaping in the staging generator
 # cannot turn a real newline into a literal backslash-n expectation.
