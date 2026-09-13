@@ -37,7 +37,7 @@ jobs:
       - name: Verify locked runner
         run: |
           python -m py_compile scripts/runpod_control.py scripts/runpod_worker.py
-          pytest -q tests/test_v14a3_runpod_runner.py tests/test_v14a4_runpod_runner.py
+          PYTHONPATH=. pytest -q tests/test_v14a3_runpod_runner.py tests/test_v14a4_runpod_runner.py
 
       - name: Commit final deployment diff
         run: |
