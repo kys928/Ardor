@@ -42,6 +42,7 @@ FIXED_PURPOSE_RUNNERS = {
     "canonical_migrate_v14a2",
     "canonical_eval_v14a2",
     "v14a3_behavior_first",
+    "v14a4_family_probe_u100",
 }
 
 
