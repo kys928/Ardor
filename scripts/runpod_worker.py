@@ -20,6 +20,8 @@ PERSISTENT_ROOT = Path("/workspace/Ardor")
 CONTROL_ROOT = Path("/workspace/ardor-control/runs")
 TRAIN_ENTRY = REPO_ROOT / "Hephaestus" / "runpod_train_entry.py"
 V14A3_ENTRY = REPO_ROOT / "Erratum" / "ardor_v14a3_behavior_first_trainer.py"
+V14A4_ENTRY = REPO_ROOT / "Erratum" / "ardor_v14a4_family_balanced_trainer.py"
+V14A4_PROBE_OUTPUT = PERSISTENT_ROOT / "training" / "runs" / "sft_v14a4_family_balanced_semantic_landing_probe_u100"
 ALLOWED_STAGES = {"lm_base", "stabilize", "sft"}
 PATH_ARGS = {
     "resume": "--resume",
@@ -39,11 +41,13 @@ ALLOWED_RUNNERS = {
     "canonical_migrate_v14a2",
     "canonical_eval_v14a2",
     "v14a3_behavior_first",
+    "v14a4_family_probe_u100",
 }
 FIXED_PURPOSE_RUNNERS = {
     "canonical_migrate_v14a2",
     "canonical_eval_v14a2",
     "v14a3_behavior_first",
+    "v14a4_family_probe_u100",
 }
 
 
@@ -331,6 +335,17 @@ def run() -> int:
         command = ["internal:canonical_eval_v14a2"]
     elif runner == "v14a3_behavior_first":
         command = [sys.executable, str(V14A3_ENTRY), "--verify-parent-sha256"]
+    elif runner == "v14a4_family_probe_u100":
+        command = [
+            sys.executable,
+            str(V14A4_ENTRY),
+            "--verify-parent-sha256",
+            "--max-updates", "100",
+            "--eval-every", "25",
+            "--eval-updates", "1", "10",
+            "--no-stop-on-regression",
+            "--output-dir", str(V14A4_PROBE_OUTPUT),
+        ]
     else:
         command = build_promptgen_command(job, job_id, control_run_id)
 
