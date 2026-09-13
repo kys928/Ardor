@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "audit-v14a3-download-targeted-20260913",
+  "kind": "storage",
+  "storage": {
+    "operation": "download",
+    "path": "Ardor/training/data/v14_v3/dataset_v14b3_targeted_route_collisions.jsonl",
+    "max_bytes": 10485760
+  }
+}
