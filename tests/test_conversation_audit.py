@@ -1,27 +1,4 @@
-from pathlib import Path
-
-# The current runtime's normal generate_text() default persona is ROLE_PRIMER, not
-# _build_chat_prompt's empty-persona fallback. Make the audit mirror that exact default.
-audit_path = Path("Erratum/ardor_v14a4_conversation_audit.py")
-audit = audit_path.read_text(encoding="utf-8")
-old_system = 'DEFAULT_SYSTEM = "You are Ardor. Stay in-context. Be helpful. Speak naturally."'
-new_system = (
-    'DEFAULT_SYSTEM = "Hi, You are Ardor. Answer my questions cleanly. Respond to me in friendly manner. '
-    'Prefer 3-6 sentences at most, however you can extend it if you deem necessary. Always start the conversation."'
-)
-if old_system not in audit:
-    raise RuntimeError("Generated audit fallback-system anchor missing")
-audit = audit.replace(old_system, new_system, 1)
-# The staging script is intentionally a raw string, so its generated source initially
-# contains doubled backslashes before n. Collapse only that exact escape pair so the
-# generated Python source uses normal \n escapes and therefore emits real newlines.
-audit = audit.replace("\\\\n", "\\n")
-audit_path.write_text(audit, encoding="utf-8")
-
-# Rewrite the tiny focused test directly so string-escaping in the staging generator
-# cannot turn a real newline into a literal backslash-n expectation.
-test_path = Path("tests/test_conversation_audit.py")
-test_path.write_text('''from __future__ import annotations
+from __future__ import annotations
 
 import base64
 import json
@@ -74,4 +51,3 @@ def test_conversation_audit_runner_is_fixed_purpose(monkeypatch, tmp_path):
     monkeypatch.setenv("ARDOR_JOB_B64", _job_b64({"runner": "v14a4_conversation_audit", "lr": 1e-3}))
     with pytest.raises(ValueError, match="accepts no task fields beyond runner"):
         worker.run()
-''', encoding="utf-8")

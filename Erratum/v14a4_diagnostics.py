@@ -39,6 +39,12 @@ def _has_any(text: str, signals: Sequence[str]) -> bool:
     return any(norm(signal) in low for signal in signals)
 
 
+def clean_eval_prompt(row: dict[str, Any]) -> str:
+    """Return the exact answer-boundary prompt used by v14a4 continuation training."""
+    text = str(row["prompt"]).rstrip()
+    return text if text.endswith("\n-") else text + "\n-"
+
+
 def family_sem_check(row: dict[str, Any], text: str) -> dict[str, Any]:
     route = str(row["route"])
     family = str(row["semantic_family"])
@@ -90,6 +96,7 @@ def evaluate_clean_family(
     special: dict[str, list[int]],
     *,
     name: str,
+    prompt_transform=None,
 ) -> dict[str, Any]:
     model.eval()
     route_total: Counter[str] = Counter()
@@ -109,7 +116,8 @@ def evaluate_clean_family(
         family = str(row["semantic_family"])
         key = f"{route}/{family}"
         qclass = str(row.get("question_class", "normal"))
-        generated = history.generate(model, tok, str(row["prompt"]), device, args, special)
+        eval_prompt = clean_eval_prompt(row) if prompt_transform is None else str(prompt_transform(row))
+        generated = history.generate(model, tok, eval_prompt, device, args, special)
         historical = history.sem_check(route, generated["text"])
         family_check = family_sem_check(row, generated["text"])
         failures = list(historical["failures"]) + [
@@ -139,6 +147,7 @@ def evaluate_clean_family(
             "semantic_family": family,
             "question_class": qclass,
             "prompt_style": str(row["prompt_style"]),
+            "eval_prompt": eval_prompt,
             "generation": generated["text"],
             "passed": passed,
             "failures": failures,
@@ -301,6 +310,7 @@ __all__ = [
     "evaluate_balanced_chosen",
     "evaluate_behavior",
     "evaluate_final_geometry",
+    "clean_eval_prompt",
     "family_sem_check",
     "evaluate_clean_family",
     "compact_clean",

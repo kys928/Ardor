@@ -1,58 +1,15 @@
-from __future__ import annotations
-
-from pathlib import Path
-
-
-def replace_once(path: Path, old: str, new: str) -> None:
-    text = path.read_text(encoding="utf-8")
-    if old not in text:
-        raise RuntimeError(f"Expected patch anchor missing in {path}: {old[:120]!r}")
-    text2 = text.replace(old, new, 1)
-    path.write_text(text2, encoding="utf-8")
-
-
-# 1) Repair the v14a4 clean-family prompt boundary, while allowing controlled prompt-format ablations.
-diag = Path("Erratum/v14a4_diagnostics.py")
-replace_once(
-    diag,
-    '''def _has_any(text: str, signals: Sequence[str]) -> bool:\n    low = norm(text)\n    return any(norm(signal) in low for signal in signals)\n\n\ndef family_sem_check''',
-    '''def _has_any(text: str, signals: Sequence[str]) -> bool:\n    low = norm(text)\n    return any(norm(signal) in low for signal in signals)\n\n\ndef clean_eval_prompt(row: dict[str, Any]) -> str:\n    \"\"\"Return the exact answer-boundary prompt used by v14a4 continuation training.\"\"\"\n    text = str(row[\"prompt\"]).rstrip()\n    return text if text.endswith("\\n-") else text + "\\n-"\n\n\ndef family_sem_check''',
-)
-replace_once(
-    diag,
-    '''    *,\n    name: str,\n) -> dict[str, Any]:''',
-    '''    *,\n    name: str,\n    prompt_transform=None,\n) -> dict[str, Any]:''',
-)
-replace_once(
-    diag,
-    '''        qclass = str(row.get("question_class", "normal"))\n        generated = history.generate(model, tok, str(row["prompt"]), device, args, special)\n        historical = history.sem_check(route, generated["text"])''',
-    '''        qclass = str(row.get("question_class", "normal"))\n        eval_prompt = clean_eval_prompt(row) if prompt_transform is None else str(prompt_transform(row))\n        generated = history.generate(model, tok, eval_prompt, device, args, special)\n        historical = history.sem_check(route, generated["text"])''',
-)
-replace_once(
-    diag,
-    '''            "prompt_style": str(row["prompt_style"]),\n            "generation": generated["text"],''',
-    '''            "prompt_style": str(row["prompt_style"]),\n            "eval_prompt": eval_prompt,\n            "generation": generated["text"],''',
-)
-replace_once(
-    diag,
-    '''    "family_sem_check",\n    "evaluate_clean_family",''',
-    '''    "clean_eval_prompt",\n    "family_sem_check",\n    "evaluate_clean_family",''',
-)
-
-
-# 2) Add a no-training canonical audit that compares raw, train-matched, and runtime role-marked prompts.
-audit = r'''#!/usr/bin/env python3
-\"\"\"No-training audit of Ardor prompt serialization and v14a4 evaluator validity.
+#!/usr/bin/env python3
+"""No-training audit of Ardor prompt serialization and v14a4 evaluator validity.
 
 Loads canonical v14a2 once, evaluates the deterministic v14a4 clean holdout under:
 1. the legacy raw clean prompt (known v14a4 bug),
-2. the exact v14a4 training answer boundary (``\\n-``), and
+2. the exact v14a4 training answer boundary (``\n-``), and
 3. the current runtime role-marked single-turn chat serialization.
 
 It also records tokenizer IDs using the exact tokenizer call conventions in the trainer
 (``add_special_tokens=False``) and runtime (default ``Tokenizer.encode``), plus a deterministic
 32-row human-audit candidate set. It performs no optimization and writes no checkpoint.
-\"\"\"
+"""
 from __future__ import annotations
 
 from collections import Counter
@@ -70,12 +27,12 @@ from Erratum.v14a4_diagnostics import clean_eval_prompt, compact_clean, evaluate
 
 OUTPUT_DIR = Path("/workspace/Ardor/training/runs/v14a4_corrected_conversation_audit")
 PROBE_DIR = Path("/workspace/Ardor/training/runs/sft_v14a4_family_balanced_semantic_landing_probe_u100")
-DEFAULT_SYSTEM = "You are Ardor. Stay in-context. Be helpful. Speak naturally."
+DEFAULT_SYSTEM = "Hi, You are Ardor. Answer my questions cleanly. Respond to me in friendly manner. Prefer 3-6 sentences at most, however you can extend it if you deem necessary. Always start the conversation."
 
 
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2, ensure_ascii=False, sort_keys=True) + "\\n", encoding="utf-8")
+    path.write_text(json.dumps(value, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def clean_history_text(text: str) -> str:
@@ -91,16 +48,16 @@ def runtime_chat_prompt(
     system: str = DEFAULT_SYSTEM,
     turns: Sequence[tuple[str, str]] = (),
 ) -> str:
-    \"\"\"Mirror the current role-token branch of ArdorCore._build_chat_prompt.\"\"\"
-    parts = [f"<|system|>\\n{system.strip()}\\n<|eot|>\\n"]
+    """Mirror the current role-token branch of ArdorCore._build_chat_prompt."""
+    parts = [f"<|system|>\n{system.strip()}\n<|eot|>\n"]
     for role, message in turns:
         message = clean_history_text(message)
         if not message:
             continue
         token = "<|user|>" if role == "user" else "<|assistant|>"
-        parts.append(f"{token}\\n{message}\\n<|eot|>\\n")
+        parts.append(f"{token}\n{message}\n<|eot|>\n")
     user_text = clean_history_text(user_text)
-    parts.append(f"<|user|>\\n{user_text}\\n<|eot|>\\n<|assistant|>\\n")
+    parts.append(f"<|user|>\n{user_text}\n<|eot|>\n<|assistant|>\n")
     return "".join(parts)
 
 
@@ -282,75 +239,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-'''
-Path("Erratum/ardor_v14a4_conversation_audit.py").write_text(audit, encoding="utf-8")
-
-
-# 3) Lock a fixed-purpose RunPod runner for the no-training audit.
-worker = Path("scripts/runpod_worker.py")
-replace_once(
-    worker,
-    '''V14A4_ENTRY = REPO_ROOT / "Erratum" / "ardor_v14a4_family_balanced_trainer.py"\nV14A4_PROBE_OUTPUT =''',
-    '''V14A4_ENTRY = REPO_ROOT / "Erratum" / "ardor_v14a4_family_balanced_trainer.py"\nV14A4_AUDIT_ENTRY = REPO_ROOT / "Erratum" / "ardor_v14a4_conversation_audit.py"\nV14A4_PROBE_OUTPUT =''',
-)
-replace_once(worker, '''    "v14a4_family_probe_u100",\n}''', '''    "v14a4_family_probe_u100",\n    "v14a4_conversation_audit",\n}''')
-replace_once(worker, '''    "v14a4_family_probe_u100",\n}\n\n\ndef utc_now''', '''    "v14a4_family_probe_u100",\n    "v14a4_conversation_audit",\n}\n\n\ndef utc_now''')
-replace_once(
-    worker,
-    '''    elif runner == "v14a4_family_probe_u100":\n        command = [''',
-    '''    elif runner == "v14a4_conversation_audit":\n        command = [sys.executable, str(V14A4_AUDIT_ENTRY)]\n    elif runner == "v14a4_family_probe_u100":\n        command = [''',
-)
-
-control = Path("scripts/runpod_control.py")
-replace_once(control, '''    "v14a4_family_probe_u100",\n}''', '''    "v14a4_family_probe_u100",\n    "v14a4_conversation_audit",\n}''')
-
-
-# 4) Tests: exact boundary, runtime serialization shape, and fixed-purpose runner lock.
-tests = r'''from __future__ import annotations
-
-import base64
-import json
-
-import pytest
-
-from Erratum.ardor_v14a4_conversation_audit import DEFAULT_SYSTEM, runtime_chat_prompt
-from Erratum.v14a4_diagnostics import clean_eval_prompt
-import scripts.runpod_worker as worker
-
-
-def test_clean_eval_prompt_exactly_matches_v14a4_training_answer_boundary():
-    assert clean_eval_prompt({"prompt": "What is gradient clipping?"}) == "What is gradient clipping?\\n-"
-    assert clean_eval_prompt({"prompt": "What is gradient clipping?\\n-"}) == "What is gradient clipping?\\n-"
-    assert clean_eval_prompt({"prompt": "What is gradient clipping?   "}) == "What is gradient clipping?\\n-"
-
-
-def test_runtime_chat_prompt_matches_current_role_marked_shape():
-    prompt = runtime_chat_prompt("What is dropout?")
-    assert prompt == (
-        f"<|system|>\\n{DEFAULT_SYSTEM}\\n<|eot|>\\n"
-        "<|user|>\\nWhat is dropout?\\n<|eot|>\\n<|assistant|>\\n"
-    )
-
-    multi = runtime_chat_prompt(
-        "What does it refer to?",
-        turns=(("user", "Remember gradient clipping."), ("assistant", "I will.")),
-    )
-    assert "<|user|>\\nRemember gradient clipping.\\n<|eot|>\\n" in multi
-    assert "<|assistant|>\\nI will.\\n<|eot|>\\n" in multi
-    assert multi.endswith("<|user|>\\nWhat does it refer to?\\n<|eot|>\\n<|assistant|>\\n")
-
-
-def _job_b64(task: dict) -> str:
-    payload = {"id": "test-audit", "task": task}
-    return base64.b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
-
-
-def test_conversation_audit_runner_is_fixed_purpose(monkeypatch, tmp_path):
-    assert "v14a4_conversation_audit" in worker.ALLOWED_RUNNERS
-    assert "v14a4_conversation_audit" in worker.FIXED_PURPOSE_RUNNERS
-    monkeypatch.setattr(worker, "CONTROL_ROOT", tmp_path)
-    monkeypatch.setenv("ARDOR_JOB_B64", _job_b64({"runner": "v14a4_conversation_audit", "lr": 1e-3}))
-    with pytest.raises(ValueError, match="accepts no task fields beyond runner"):
-        worker.run()
-'''
-Path("tests/test_conversation_audit.py").write_text(tests, encoding="utf-8")
