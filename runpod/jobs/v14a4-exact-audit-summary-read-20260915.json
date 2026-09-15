@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "v14a4-exact-audit-summary-read-20260915",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/runs/v14a4_exact_runtime_serialization_audit/audit_summary.json",
+    "max_bytes": 100000
+  }
+}
