@@ -14,6 +14,7 @@ ENV ARDOR_HOME=/workspace/ArdorRuntime \
     UV_CACHE_DIR=/workspace/.cache/uv \
     UV_LINK_MODE=copy \
     PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/opt/Ardor/scripts \
     ARDOR_CODE_ROOT=/opt/Ardor
 
 WORKDIR /opt/Ardor
