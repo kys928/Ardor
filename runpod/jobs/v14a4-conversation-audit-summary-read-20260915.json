@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "v14a4-conversation-audit-summary-read-20260915",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/runs/v14a4_corrected_conversation_audit/audit_summary.json",
+    "max_bytes": 1048576,
+    "encoding": "utf-8"
+  }
+}
