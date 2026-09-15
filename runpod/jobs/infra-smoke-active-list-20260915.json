@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "infra-smoke-active-list-20260915",
+  "kind": "storage",
+  "storage": {
+    "operation": "list",
+    "path": "ardor-control/active/",
+    "max_items": 200
+  }
+}
