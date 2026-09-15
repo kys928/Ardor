@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "v14a4-conversation-audit-status-read-20260915",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "ardor-control/runs/v14a4-conversation-audit-20260915/run-1789455556-2177a9ce/status.json",
+    "max_bytes": 65536
+  }
+}
