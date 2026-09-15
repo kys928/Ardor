@@ -293,6 +293,7 @@ def train_arm(
             )
     if any(not parameter.requires_grad for parameter in model.parameters()):
         raise RuntimeError("A/B requires the same all-parameter trainability as v14a4")
+    model.train()
 
     device = torch.device("cuda")
     args = SimpleNamespace(
@@ -343,6 +344,7 @@ def train_arm(
 
     checkpoint_path = arm_dir / "u100_model_state.pt"
     save_arm_checkpoint(checkpoint_path, model, arm, schedule_sha256)
+    model.eval()
     print(f"[{arm}] evaluating 2x2 formats", flush=True)
     evaluation = eval_both_formats(model, tok, holdout, device)
     write_json(arm_dir / "training_matched_outputs.json", evaluation["training_matched"]["outputs"])
