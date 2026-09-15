@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "infra-smoke-lifecycle-prefix-list-20260915",
+  "kind": "storage",
+  "storage": {
+    "operation": "list",
+    "path": "ardor-control/runs/infra-smoke-lifecycle-20260915/run-1789468936-906300ff/",
+    "max_items": 100
+  }
+}
