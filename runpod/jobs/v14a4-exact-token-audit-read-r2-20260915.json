@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "v14a4-exact-token-audit-read-r2-20260915",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/runs/v14a4_exact_runtime_serialization_audit/serialization_token_audit.json",
+    "max_bytes": 100000
+  }
+}
