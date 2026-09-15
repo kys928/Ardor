@@ -46,8 +46,10 @@ def test_runpod_exit_hold_is_scoped_to_top_level_worker(monkeypatch):
     assert sitecustomize._is_runpod_worker_process() is True
 
 
-def test_worker_hold_does_not_modify_scientific_worker_source():
-    worker = Path(__file__).resolve().parents[1] / "scripts" / "runpod_worker.py"
-    source = worker.read_text(encoding="utf-8")
-    assert "v14a4_conversation_audit" in source
-    assert "terminal process held for controller cleanup" not in source
+def test_runpod_image_loads_sitecustomize_but_worker_source_stays_scientifically_unchanged():
+    root = Path(__file__).resolve().parents[1]
+    dockerfile = (root / "docker" / "runpod-agent.Dockerfile").read_text(encoding="utf-8")
+    worker = (root / "scripts" / "runpod_worker.py").read_text(encoding="utf-8")
+    assert "PYTHONPATH=/opt/Ardor/scripts" in dockerfile
+    assert "v14a4_conversation_audit" in worker
+    assert "terminal process held for controller cleanup" not in worker
