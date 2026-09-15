@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "infra-smoke-lifecycle-history-read-20260915",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "ardor-control/history/run-1789468936-906300ff.json",
+    "max_bytes": 65536
+  }
+}
