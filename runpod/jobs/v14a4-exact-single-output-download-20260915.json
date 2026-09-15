@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "v14a4-exact-single-output-download-20260915",
+  "kind": "storage",
+  "storage": {
+    "operation": "download",
+    "path": "Ardor/training/runs/v14a4_exact_runtime_serialization_audit/runtime_exact_single_turn_outputs.json",
+    "max_bytes": 1000000
+  }
+}
