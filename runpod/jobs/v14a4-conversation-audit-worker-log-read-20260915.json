@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "v14a4-conversation-audit-worker-log-read-20260915",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "ardor-control/runs/v14a4-conversation-audit-20260915/run-1789455556-2177a9ce/worker.log",
+    "max_bytes": 524288
+  }
+}
