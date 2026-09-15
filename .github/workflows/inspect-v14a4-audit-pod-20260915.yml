@@ -25,3 +25,19 @@ jobs:
             --url 'https://rest.runpod.io/v1/pods/h45lxciu9mmm55?includeMachine=true' \
             --header "Authorization: Bearer $RUNPOD_API_KEY" \
           | python -c 'import json,sys; p=json.load(sys.stdin); allowed=("id","name","desiredStatus","status","cloudType","gpuCount","gpuTypeIds","costPerHr","imageName","networkVolumeId","lastStatusChange","runtime","machine","interruptible"); print(json.dumps({k:p.get(k) for k in allowed if k in p}, indent=2, default=str))'
+
+      - name: Fetch RunPod host and container logs
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          set -euo pipefail
+          set +e
+          curl -sS --no-buffer --max-time 20 --fail-with-body \
+            --request GET \
+            --url 'https://v2-rest.runpod.io/v2/pods/h45lxciu9mmm55/logs' \
+            --header "Authorization: Bearer $RUNPOD_API_KEY"
+          rc=$?
+          set -e
+          if [[ "$rc" -ne 0 && "$rc" -ne 28 ]]; then
+            exit "$rc"
+          fi
