@@ -22,6 +22,7 @@ TRAIN_ENTRY = REPO_ROOT / "Hephaestus" / "runpod_train_entry.py"
 V14A3_ENTRY = REPO_ROOT / "Erratum" / "ardor_v14a3_behavior_first_trainer.py"
 V14A4_ENTRY = REPO_ROOT / "Erratum" / "ardor_v14a4_family_balanced_trainer.py"
 V14A4_AUDIT_ENTRY = REPO_ROOT / "Erratum" / "ardor_v14a4_conversation_audit.py"
+V14A4_FORMAT_AB_ENTRY = REPO_ROOT / "Erratum" / "ardor_v14a4_format_ab.py"
 V14A4_PROBE_OUTPUT = PERSISTENT_ROOT / "training" / "runs" / "sft_v14a4_family_balanced_semantic_landing_probe_u100"
 ALLOWED_STAGES = {"lm_base", "stabilize", "sft"}
 PATH_ARGS = {
@@ -44,6 +45,7 @@ ALLOWED_RUNNERS = {
     "v14a3_behavior_first",
     "v14a4_family_probe_u100",
     "v14a4_conversation_audit",
+    "v14a4_format_ab_u100",
 }
 FIXED_PURPOSE_RUNNERS = {
     "canonical_migrate_v14a2",
@@ -51,6 +53,7 @@ FIXED_PURPOSE_RUNNERS = {
     "v14a3_behavior_first",
     "v14a4_family_probe_u100",
     "v14a4_conversation_audit",
+    "v14a4_format_ab_u100",
 }
 
 
@@ -340,6 +343,8 @@ def run() -> int:
         command = [sys.executable, str(V14A3_ENTRY), "--verify-parent-sha256"]
     elif runner == "v14a4_conversation_audit":
         command = [sys.executable, str(V14A4_AUDIT_ENTRY)]
+    elif runner == "v14a4_format_ab_u100":
+        command = [sys.executable, str(V14A4_FORMAT_AB_ENTRY), "--verify-parent-sha256"]
     elif runner == "v14a4_family_probe_u100":
         command = [
             sys.executable,
