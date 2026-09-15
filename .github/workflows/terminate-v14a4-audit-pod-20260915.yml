@@ -1,0 +1,31 @@
+name: Terminate v14a4 audit Pod 20260915
+
+on:
+  push:
+    branches:
+      - inspect-v14a4-audit-pod-20260915
+    paths:
+      - '.github/workflows/terminate-v14a4-audit-pod-20260915.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  terminate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Delete exact completed-audit Pod
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /tmp/response -w '%{http_code}' \
+            --request DELETE \
+            --url 'https://rest.runpod.io/v1/pods/h45lxciu9mmm55' \
+            --header "Authorization: Bearer $RUNPOD_API_KEY")
+          cat /tmp/response || true
+          echo "HTTP $code"
+          if [[ "$code" != "200" && "$code" != "204" && "$code" != "404" ]]; then
+            exit 1
+          fi
