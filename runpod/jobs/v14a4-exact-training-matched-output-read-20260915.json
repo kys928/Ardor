@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "v14a4-exact-training-matched-output-read-20260915",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/runs/v14a4_exact_runtime_serialization_audit/training_matched_outputs.json",
+    "max_bytes": 300000
+  }
+}
