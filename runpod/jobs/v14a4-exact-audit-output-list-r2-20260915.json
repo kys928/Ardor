@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "v14a4-exact-audit-output-list-r2-20260915",
+  "kind": "storage",
+  "storage": {
+    "operation": "list",
+    "path": "Ardor/training/runs/v14a4_exact_runtime_serialization_audit/",
+    "max_items": 100
+  }
+}
