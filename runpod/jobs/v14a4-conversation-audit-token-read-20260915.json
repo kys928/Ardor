@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "v14a4-conversation-audit-token-read-20260915",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/runs/v14a4_corrected_conversation_audit/serialization_token_audit.json",
+    "max_bytes": 1048576,
+    "encoding": "utf-8"
+  }
+}
