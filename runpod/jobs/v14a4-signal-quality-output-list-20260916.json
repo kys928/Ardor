@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "v14a4-signal-quality-output-list-20260916",
+  "kind": "storage",
+  "storage": {
+    "operation": "list",
+    "path": "Ardor/training/runs/v14a4_signal_quality_audit/",
+    "max_items": 100
+  }
+}
