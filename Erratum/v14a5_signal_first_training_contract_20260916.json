@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "designation": "v14a5_signal_first_semantic_landing_probe_u100",
+  "date": "2026-09-16",
+  "purpose": "Control the v14a4 signal-quality confound before interpreting persistent family failures as learning or optimization limitations.",
+  "parent_data_contract": "Erratum/v14a4_family_balanced_training_contract_20260913.json",
+  "canonical_parent": "unchanged from v14a4 / canonical v14a2",
+  "tokenizer_contract": "unchanged from v14a4: tokenizer_v9 with canonical special-token IDs",
+  "model_architecture": "unchanged from v14a4 / canonical v14a2",
+  "training_mechanics": {
+    "optimizer": "AdamW",
+    "learning_rate": 2e-8,
+    "weight_decay": 0.0,
+    "gradient_clip_norm": 0.5,
+    "trainability": "all model parameters",
+    "objective": "full chosen-answer continuation CE with prompt tokens masked",
+    "batch_rows": 4,
+    "max_updates": 100,
+    "evaluation_updates": [1, 10, 25, 50, 75, 100],
+    "optimizer_or_loss_changes_from_v14a4": false
+  },
+  "supervision_repair": {
+    "scope": "dropout/overfitting_relationship only",
+    "rule": "After the pinned v14a4 dataset is verified, any target-family chosen continuation missing a dropout route signal or overfitting/generalization family signal receives a deterministic family-specific sentence. All repaired target rows are revalidated before training.",
+    "non_target_behavior_text_changed": false
+  },
+  "legacy_replay_policy": {
+    "delete_replay": false,
+    "family_mapping_basis": "chosen answer only",
+    "mapping_rule": "A replay row is family-mapped only when its chosen answer contains a route signal and has one unique highest positive family-signal score. Ties, broad route-only rows, and rows without route signals remain legacy_generic.",
+    "legacy_generic_retained_in_training_pool": true,
+    "legacy_generic_sampled_in_u100": false,
+    "mapped_replay_recycling_in_u100": false
+  },
+  "sampling_policy": {
+    "route_schedule": "inherit v14a4 ROUTE_SEQUENCE",
+    "family_schedule": "round-robin within each route on every route occurrence",
+    "source_cycle_per_route": ["behavior", "behavior", "behavior", "behavior", "replay"],
+    "replay_sources": ["balanced", "targeted"],
+    "replay_fallback": "If no unused mapped replay exists for the current route/family, use authored behavior for that same family.",
+    "behavior_recycling": false,
+    "minimum_expected_behavior_share": 0.8
+  },
+  "evaluation": {
+    "reuse_v14a4_clean_family_evaluator": true,
+    "family_by_family": true,
+    "decision_artifact": "v14a5_signal_landing_decision.json",
+    "signal_precondition": {
+      "gradient_clipping_min_behavior_exposure_per_family": 10,
+      "other_min_behavior_exposure_per_family": 4,
+      "minimum_behavior_share": 0.8,
+      "generic_replay_sampled": 0
+    },
+    "interpretation": "If the signal precondition passes and any gradient_clipping family still fails clean family evaluation, record strong evidence (not causal proof) for a learning/optimization limitation rather than an obvious supervision/exposure defect."
+  },
+  "reproducibility": {
+    "v14a4_dataset_and_training_contract_are_not_modified": true,
+    "v14a5_is_a_new_diagnostic_lineage": true,
+    "u100_cap_is_mandatory": true
+  }
+}
