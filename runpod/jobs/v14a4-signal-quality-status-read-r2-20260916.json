@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "v14a4-signal-quality-status-read-r2-20260916",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "ardor-control/runs/v14a4-signal-quality-audit-20260916/run-1789544336-d62de952/status.json",
+    "max_bytes": 100000
+  }
+}
