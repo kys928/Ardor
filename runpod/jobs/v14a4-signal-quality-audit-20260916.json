@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "id": "v14a4-signal-quality-audit-20260916",
+  "kind": "compute",
+  "task": {
+    "runner": "v14a4_signal_quality_audit"
+  },
+  "gpu": {
+    "type_ids": [
+      "NVIDIA GeForce RTX 4090",
+      "NVIDIA RTX PRO 4500 Blackwell",
+      "NVIDIA GeForce RTX 5090"
+    ],
+    "count": 1,
+    "cloud_type": "SECURE",
+    "container_disk_gb": 50
+  },
+  "lifecycle": {
+    "mode": "detached"
+  }
+}
