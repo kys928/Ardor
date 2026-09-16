@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "v14a4-signal-audit-summary-download-20260916",
+  "kind": "storage",
+  "storage": {
+    "operation": "download",
+    "path": "Ardor/training/runs/v14a4_signal_quality_audit/signal_audit_summary.json",
+    "max_bytes": 1000000
+  }
+}

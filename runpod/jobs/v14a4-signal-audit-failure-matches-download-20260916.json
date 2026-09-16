@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "v14a4-signal-audit-failure-matches-download-20260916",
+  "kind": "storage",
+  "storage": {
+    "operation": "download",
+    "path": "Ardor/training/runs/v14a4_signal_quality_audit/failure_training_matches.json",
+    "max_bytes": 5000000
+  }
+}
