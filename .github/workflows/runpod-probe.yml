@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - "runpod/inspect/**"
+      - "runpod/inspect/v14a5-r2-probe-20260919.json"
 
 permissions:
   contents: read
@@ -20,7 +20,7 @@ jobs:
       - name: Check out Ardor
         uses: actions/checkout@v5
 
-      - name: Inspect Pods with runpodctl
+      - name: Inspect v14a5 Pod with runpodctl
         shell: bash
         run: |
           set -euo pipefail
@@ -30,21 +30,15 @@ jobs:
           printf '{}\n' > "$HOME/.runpod/.runpod.yaml"
           /tmp/runpodctl config --apiKey "$RUNPOD_API_KEY" >/dev/null
 
-          git diff --name-only "$GITHUB_SHA^" "$GITHUB_SHA" -- 'runpod/inspect/*.json' > /tmp/runpod-inspect.txt
           python - <<'PY'
           import json, re, subprocess
           from pathlib import Path
 
-          for raw in Path('/tmp/runpod-inspect.txt').read_text().splitlines():
-              path = Path(raw.strip())
-              if not path.is_file():
-                  continue
-              spec = json.loads(path.read_text())
-              pod_id = str(spec.get('pod_id', '')).strip()
-              if not pod_id:
-                  continue
-              if not re.fullmatch(r'[A-Za-z0-9_-]{4,64}', pod_id):
-                  raise SystemExit(f'Unsafe pod id in {path}')
-              print(f'=== POD {pod_id} ===')
-              subprocess.run(['/tmp/runpodctl', 'pod', 'get', pod_id], check=True)
+          path = Path('runpod/inspect/v14a5-r2-probe-20260919.json')
+          spec = json.loads(path.read_text())
+          pod_id = str(spec.get('pod_id', '')).strip()
+          if not re.fullmatch(r'[A-Za-z0-9_-]{4,64}', pod_id):
+              raise SystemExit('Unsafe or missing pod id')
+          print(f'=== POD {pod_id} ===')
+          subprocess.run(['/tmp/runpodctl', 'pod', 'get', pod_id], check=True)
           PY
