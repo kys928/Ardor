@@ -16,7 +16,14 @@ def _validate_compute_with_experimental_worker(job):
     task = job.get("task") or {}
     if str(task.get("runner", "")) == "v14a5_signal_first_u100":
         payload["dockerStartCmd"] = [
-            "cd /opt/Ardor && .venv/bin/python scripts/runpod_v14a5_worker.py"
+            "cd /opt/Ardor && "
+            "uv pip install --python .venv/bin/python "
+            "--index-url https://download.pytorch.org/whl/cu128 torch==2.7.1 && "
+            ".venv/bin/python -c \"import torch; "
+            "assert torch.version.cuda == '12.8'; "
+            "assert torch.cuda.is_available(), 'CUDA unavailable after cu128 bootstrap'; "
+            "print(torch.__version__, torch.version.cuda)\" && "
+            ".venv/bin/python scripts/runpod_v14a5_worker.py"
         ]
     return payload, hourly_cap, timeout_minutes, control_run_id, mode
 
