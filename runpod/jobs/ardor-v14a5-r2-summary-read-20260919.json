@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-v14a5-r2-summary-read-20260919",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/runs/sft_v14a5_signal_first_semantic_landing_probe_u100/run_summary.json",
+    "max_bytes": 262144
+  }
+}
