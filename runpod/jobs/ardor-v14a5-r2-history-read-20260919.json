@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-v14a5-r2-history-read-20260919",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "ardor-control/history/run-1789833051-5f88caee.json",
+    "max_bytes": 262144
+  }
+}
