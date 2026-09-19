@@ -16,7 +16,7 @@ def _validate_compute_with_experimental_worker(job):
     task = job.get("task") or {}
     if str(task.get("runner", "")) == "v14a5_signal_first_u100":
         payload["dockerStartCmd"] = [
-            "cd /opt/Ardor && uv run --frozen python scripts/runpod_v14a5_worker.py"
+            "cd /opt/Ardor && .venv/bin/python scripts/runpod_v14a5_worker.py"
         ]
     return payload, hourly_cap, timeout_minutes, control_run_id, mode
 
