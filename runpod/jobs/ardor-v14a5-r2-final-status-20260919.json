@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-v14a5-r2-final-status-20260919",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "ardor-control/runs/ardor-v14a5-signal-first-u100-20260919-r2/run-1789833051-5f88caee/status.json",
+    "max_bytes": 262144
+  }
+}
