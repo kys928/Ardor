@@ -8,7 +8,8 @@ def test_control_entry_registers_v14a5_and_routes_to_isolated_worker():
     source = root.joinpath("scripts/runpod_control_entry.py").read_text(encoding="utf-8")
     assert 'FIXED_PURPOSE_RUNNERS.add("v14a5_signal_first_u100")' in source
     assert 'str(task.get("runner", "")) == "v14a5_signal_first_u100"' in source
-    assert "scripts/runpod_v14a5_worker.py" in source
+    assert ".venv/bin/python scripts/runpod_v14a5_worker.py" in source
+    assert "uv run --frozen python scripts/runpod_v14a5_worker.py" not in source
 
 
 def test_v14a5_worker_pins_reviewed_u100_command():
@@ -23,3 +24,12 @@ def test_v14a5_worker_pins_reviewed_u100_command():
     assert '"--no-stop-on-regression"' in source
     assert '"--lr"' not in source
     assert '"--seed"' not in source
+
+
+def test_runpod_image_overlays_cuda_12_8_torch_for_v14a5():
+    root = Path(__file__).resolve().parents[1]
+    source = root.joinpath("docker/runpod-agent.Dockerfile").read_text(encoding="utf-8")
+    assert "ARDOR_RUNPOD_TORCH_VERSION=2.7.1" in source
+    assert "https://download.pytorch.org/whl/cu128" in source
+    assert "uv pip install --python .venv/bin/python" in source
+    assert "torch.version.cuda == '12.8'" in source
