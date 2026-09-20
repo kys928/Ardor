@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-v14a6-final-decision-read-20260920",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/runs/sft_v14a6_learning_dynamics_target_pulse_chase_u80/v14a6_learning_dynamics_decision.json",
+    "max_bytes": 262144
+  }
+}
