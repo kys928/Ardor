@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-v14a7-live-status-read-20260920",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "ardor-control/runs/ardor-v14a7-clip-ablation-u40-20260920/run-1789936750-86d294b6/status.json",
+    "max_bytes": 262144
+  }
+}
