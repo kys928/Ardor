@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "designation": "v14a7_clip_ablation_v14a6_pulse_u40",
+  "date": "2026-09-20",
+  "purpose": "Test whether the v14a6 target-token learning failure is caused primarily by the gradient-clipping threshold by changing only max_norm while holding the exact target pulse fixed.",
+  "parent_lineage": "canonical v14a2 with the v14a6 target-pulse construction reused exactly",
+  "tokenizer_contract": "unchanged from v14a6: tokenizer_v9 with canonical special-token IDs",
+  "model_architecture": "unchanged from v14a6 / canonical v14a2",
+  "fixed_controls": {
+    "target_route": "gradient_clipping",
+    "target_rows": "same deterministic 28 authored rows selected by v14a6",
+    "target_rows_per_family": 4,
+    "pulse_updates": 40,
+    "batch_rows": 4,
+    "batch_order": "same deterministic v14a6 TargetPulseSampler order in every arm",
+    "optimizer": "AdamW",
+    "learning_rate": 2e-8,
+    "lr_schedule": "same v14a6 warmup/cosine law on the original 100-update horizon",
+    "warmup_updates": 20,
+    "weight_decay": 0.0,
+    "trainability": "all model parameters",
+    "objective": "full chosen-answer continuation CE with prompt tokens masked",
+    "promotion": false
+  },
+  "ablation_variable": {
+    "name": "gradient_clip_max_norm",
+    "arms": [
+      {"name": "clip_0p5", "max_norm": 0.5},
+      {"name": "clip_5", "max_norm": 5.0},
+      {"name": "clip_50", "max_norm": 50.0},
+      {"name": "no_clip", "max_norm": null}
+    ]
+  },
+  "probe_updates": [0, 1, 5, 10, 20, 30, 40],
+  "primary_measurements": {
+    "exact_target_nll": "same v14a6 score_exact_targets implementation",
+    "exact_target_top1": "same v14a6 score_exact_targets implementation",
+    "semantic_secondary": "same clean gradient_clipping family evaluator used in v14a6",
+    "gradient_diagnostics": [
+      "raw pre-clipping gradient norm",
+      "applied clip scale for finite-threshold arms",
+      "fraction of updates clipped"
+    ]
+  },
+  "decision_logic": {
+    "learning_threshold": "same v14a6 rule: exact NLL gain >= max(0.05, 1% baseline NLL) OR exact top-1 gain >= 0.02",
+    "clip_0p5_update_bottleneck_supported": "clip_0p5 fails the learning threshold and at least one looser arm passes it",
+    "clip_threshold_not_primary_bottleneck_supported": "clip_0p5 fails and all looser arms also fail",
+    "clip_0p5_learning_failure_not_replicated": "clip_0p5 itself passes the learning threshold in the controlled replicate",
+    "interpretation_strength": "controlled single-factor diagnostic evidence, not causal proof"
+  },
+  "reproducibility": {
+    "fresh_parent_reload_per_arm": true,
+    "fresh_optimizer_per_arm": true,
+    "identical_target_row_ids_required": true,
+    "identical_batch_sequence_required": true,
+    "diagnostic_only": true,
+    "no_checkpoint_promotion": true
+  }
+}
