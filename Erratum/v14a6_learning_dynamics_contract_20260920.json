@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "designation": "v14a6_learning_dynamics_target_pulse_chase_u80",
+  "date": "2026-09-20",
+  "purpose": "Distinguish target-token learning failure, interference/overwrite, and continuation-loss improvement without semantic generalization after v14a5 passed the supervision-saturation precondition.",
+  "parent_lineage": "canonical v14a2 with v14a5 supervision normalization/repair reused for authored behavior",
+  "tokenizer_contract": "unchanged from v14a5: tokenizer_v9 with canonical special-token IDs",
+  "model_architecture": "unchanged from v14a5 / canonical v14a2",
+  "training_mechanics": {
+    "optimizer": "AdamW",
+    "learning_rate": 2e-8,
+    "lr_schedule": "same warmup/cosine law as v14a5, evaluated on the original 100-update horizon",
+    "warmup_updates": 20,
+    "weight_decay": 0.0,
+    "gradient_clip_norm": 0.5,
+    "trainability": "all model parameters",
+    "objective": "full chosen-answer continuation CE with prompt tokens masked",
+    "batch_rows": 4,
+    "total_updates": 80,
+    "promotion": false
+  },
+  "target_probe": {
+    "route": "gradient_clipping",
+    "families": "all gradient_clipping semantic families from the pinned v14a4 family dataset",
+    "authored_rows_per_family": 4,
+    "selection": "deterministic family-local shuffle from v14a5-normalized authored behavior",
+    "exact_probe": "chosen continuation CE and token top-1, aggregated and per family",
+    "semantic_probe": "existing v14a4 clean-family generator/evaluator restricted to gradient_clipping holdout rows",
+    "clean_holdout_overlap_allowed": false
+  },
+  "phase_1_target_pulse": {
+    "updates": 40,
+    "data": "only the fixed gradient_clipping target rows",
+    "family_schedule": "round-robin across all gradient_clipping families",
+    "recycling": "intentional within the fixed target subset; this phase is an overfit/plasticity diagnostic"
+  },
+  "phase_2_interference_chase": {
+    "updates": 40,
+    "data": "authored behavior from every non-gradient_clipping route/family",
+    "family_schedule": "round-robin over non-target route x family pools",
+    "recycling": false,
+    "gradient_clipping_rows_allowed": false
+  },
+  "probe_updates": [0, 1, 5, 10, 20, 30, 40, 45, 50, 60, 70, 80],
+  "decision_logic": {
+    "target_token_learning_failure": "Pulse-end exact NLL fails to improve by max(0.05, 1% of baseline NLL) and exact top-1 fails to improve by 0.02.",
+    "interference_or_overwrite": "Target-token learning occurs during the pulse, then exact NLL/top-1 materially regress during the non-target chase, or semantic success acquired during the pulse regresses.",
+    "token_learning_without_semantic_generalization": "Exact target learning occurs during the pulse, does not meet interference criteria, but gradient_clipping clean-family macro success does not improve over baseline.",
+    "target_learning_and_semantic_transfer": "Exact target learning occurs and gradient_clipping clean-family macro success improves without meeting interference criteria.",
+    "interpretation_strength": "controlled diagnostic evidence, not causal proof"
+  },
+  "artifacts": {
+    "decision": "v14a6_learning_dynamics_decision.json",
+    "summary": "run_summary.json",
+    "trajectory": "trajectory.jsonl",
+    "train_steps": "train_steps.jsonl",
+    "generated_outputs": "gradient_clipping_outputs_uXXXX.json"
+  },
+  "reproducibility": {
+    "diagnostic_only": true,
+    "canonical_parent_is_not_modified": true,
+    "v14a5_training_outputs_are_not_modified": true,
+    "no_checkpoint_promotion": true
+  }
+}
