@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "designation": "v14a9_holdout_generalization_diagnostic",
+  "date": "2026-10-16",
+  "purpose": "Separate generalization and generation quality on v14a8 high-rate overfit pulse without new optimizer/data/objective/architecture changes.",
+  "replay": {
+    "base": "v14a8 lr_2e-5 arm",
+    "implementation": "Erratum/ardor_v14a8_lr_ablation.py::run_arm",
+    "updates": 40,
+    "teacher": "28 training authored gradient_clipping rows (four per family) selected with v14a6 sampler",
+    "holdout": "v14a4 clean heldout gradient_clipping 32 rows",
+    "canonical_parent": "v14a2 strict migration config+verified sha256",
+    "tokenizer": "tokenizer_v9 exact special token IDs",
+    "optimizer": "fresh AdamW",
+    "peak_lr": 0.00002,
+    "clip": 0.5,
+    "warmup_updates": 20,
+    "lr_horizon": 100,
+    "min_lr_ratio": 0.2,
+    "weight_decay": 0,
+    "batch_rows": 4,
+    "seed": 928,
+    "evaluated_updates": [
+      0,
+      20,
+      40
+    ],
+    "reproduction_guard": {
+      "u40_train_target_nll": 0.2719491542331756,
+      "u40_train_target_top1": 0.9571428692530072,
+      "max_absolute_delta": 0.005
+    }
+  },
+  "metrics": {
+    "heldout_continuation": "Teacher-forced continuation CE and top1 of heldout chosen reference, mask prompt tokens, 32 rows, token-weighted, family-breakdown.",
+    "first_sentence": "Extract up to first punctuation mark (.!?), score v14a4 family_sem_check route signal, family signal, explicit correction if false premise; automatic keyword surrogate, not factual human correctness.",
+    "eos_probability": "Softmax probability at final position of complete teacher-forced heldout chosen reference answer, sum canonical <eos> ID3 and <|eot|> ID7, individually and combined. EOS not added to training targets.",
+    "repetition": "Full greedy generated holdout answer trigram repetition using historical history.repetition_rate; pass threshold <0.45; record rate and count.",
+    "original_evaluation": "Preserve original v14a8 32-row full-answer rubric and exact train-target NLL."
+  },
+  "diagnostic_only": true,
+  "no_checkpoint_promotion": true,
+  "no_optimizer_ablations": true,
+  "operational": {
+    "single_pod": true,
+    "detached_supervision": true,
+    "max_duration_minutes": 40,
+    "expected_output": "training/runs/v14a9_holdout_generalization_lr2e5_u40/v14a9_generalization_decision.json"
+  }
+}
