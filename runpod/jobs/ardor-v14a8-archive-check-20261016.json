@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-v14a8-archive-check-20261016",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "ardor-control/history/run-1792159559-cad2a516.json",
+    "max_bytes": 262144
+  }
+}
