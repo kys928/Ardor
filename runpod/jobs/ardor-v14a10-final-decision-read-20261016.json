@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-v14a10-final-decision-read-20261016",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/runs/v14a10_eos_supervision_ablation_u40/v14a10_eos_ablation_decision.json",
+    "max_bytes": 262144
+  }
+}
