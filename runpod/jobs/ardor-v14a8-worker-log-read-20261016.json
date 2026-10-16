@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "id": "ardor-v14a8-worker-log-read-20261016-r6",
+  "id": "ardor-v14a8-worker-log-read-20261016-r7",
   "kind": "storage",
   "storage": {
     "operation": "read_text",
