@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-v14a9-final-decision-read-20261016",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/runs/v14a9_holdout_generalization_lr2e5_u40/v14a9_generalization_decision.json",
+    "max_bytes": 262144
+  }
+}
