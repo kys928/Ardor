@@ -11,6 +11,7 @@ runpod_control.FIXED_PURPOSE_RUNNERS.add("v14a6_learning_dynamics_probe")
 runpod_control.FIXED_PURPOSE_RUNNERS.add("v14a7_clip_ablation")
 runpod_control.FIXED_PURPOSE_RUNNERS.add("v14a8_lr_ablation")
 runpod_control.FIXED_PURPOSE_RUNNERS.add("v14a9_holdout_generalization")
+runpod_control.FIXED_PURPOSE_RUNNERS.add("v14a10_eos_supervision_ablation")
 
 _ORIGINAL_VALIDATE_COMPUTE = runpod_control.validate_compute
 
@@ -51,6 +52,10 @@ def _validate_compute_with_experimental_worker(job):
     elif runner == "v14a9_holdout_generalization":
         payload["dockerStartCmd"] = _cuda128_start_command(
             "scripts/runpod_v14a9_worker.py"
+        )
+    elif runner == "v14a10_eos_supervision_ablation":
+        payload["dockerStartCmd"] = _cuda128_start_command(
+            "scripts/runpod_v14a10_worker.py"
         )
     return payload, hourly_cap, timeout_minutes, control_run_id, mode
 
