@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-v14a8-decision-read-20261016",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/runs/sft_v14a8_lr_ablation_v14a7_pulse_u40/v14a8_lr_ablation_decision.json",
+    "max_bytes": 262144
+  }
+}
