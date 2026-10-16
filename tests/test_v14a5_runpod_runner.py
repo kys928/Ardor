@@ -72,3 +72,21 @@ def test_v14a8_worker_pins_reviewed_lr_ablation():
     assert '"v14a8_lr_ablation_decision.json"' in source
     assert '"--lr"' not in source
     assert '"--seed"' not in source
+
+
+def test_control_entry_registers_v14a9_fixed_replay_runner():
+    root = Path(__file__).resolve().parents[1]
+    source = root.joinpath("scripts/runpod_control_entry.py").read_text(encoding="utf-8")
+    assert 'FIXED_PURPOSE_RUNNERS.add("v14a9_holdout_generalization")' in source
+    assert 'runner == "v14a9_holdout_generalization"' in source
+    assert 'scripts/runpod_v14a9_worker.py' in source
+
+
+def test_v14a9_worker_accepts_no_custom_training_controls():
+    root = Path(__file__).resolve().parents[1]
+    source = root.joinpath("scripts/runpod_v14a9_worker.py").read_text(encoding="utf-8")
+    assert 'RUNNER = "v14a9_holdout_generalization"' in source
+    assert 'ardor_v14a9_holdout_generalization_diagnostic.py' in source
+    assert 'v14a9_generalization_decision.json' in source
+    assert '"--verify-parent-sha256"' in source
+    assert '"--seed"' not in source
