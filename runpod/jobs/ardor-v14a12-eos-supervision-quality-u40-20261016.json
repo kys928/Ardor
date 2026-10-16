@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "id": "ardor-v14a12-eos-supervision-quality-u40-20261016",
+  "kind": "compute",
+  "task": {
+    "runner": "v14a12_supervision_quality_eos"
+  },
+  "gpu": {
+    "type_ids": [
+      "NVIDIA RTX PRO 4500 Blackwell",
+      "NVIDIA GeForce RTX 4090",
+      "NVIDIA GeForce RTX 5090"
+    ],
+    "count": 1,
+    "cloud_type": "SECURE",
+    "container_disk_gb": 50
+  },
+  "limits": {
+    "max_hourly_usd": 1.2,
+    "timeout_minutes": 45
+  },
+  "lifecycle": {
+    "mode": "attached"
+  }
+}
