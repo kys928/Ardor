@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "designation": "v14a8_lr_ablation_v14a7_pulse_u40",
+  "date": "2026-10-16",
+  "purpose": "Isolate peak LR as the only changing training variable on the exact v14a7 clip_0p5 pulse, testing whether a tiny learning rate, rather than gradient clipping, blocks teacher-forced target learning.",
+  "fixed_controls": {
+    "canonical_parent": "same canonical v14a2 checkpoint, verified SHA256 per arm",
+    "tokenizer": "tokenizer_v9 and exact special ID contract enforced by v14a6/v14a7",
+    "model_config": "same canonical model config checked against MODEL_CONFIG",
+    "target_route": "gradient_clipping",
+    "training_rows": "same 28 v14a6/v14a7 authored chosen rows, 4 per family",
+    "clean_semantic_holdout": "identical v14a7 clean gradient-clipping holdout",
+    "sampler": "v14a6.TargetPulseSampler identical seed+801 and round-robin order, cross-arm batch-ID equality asserted",
+    "seed": "v14a7 default seed reset before each arm",
+    "steps": 40,
+    "batch_rows": 4,
+    "optimizer": "fresh AdamW per arm, all parameters trainable",
+    "objective": "full chosen continuation CE, prompt tokens masked, identical v14a7 function",
+    "weight_decay": 0,
+    "gradient_clip_max_norm": 0.5,
+    "warmup_updates": 20,
+    "cosine_horizon_updates": 100,
+    "min_lr_ratio": 0.2,
+    "probe_updates": [
+      0,
+      1,
+      5,
+      10,
+      20,
+      30,
+      40
+    ],
+    "no_checkpoint_promotion": true
+  },
+  "only_ablation_variable": "peak_learning_rate",
+  "arms": [
+    {
+      "name": "lr_2e-8",
+      "peak_lr": 2e-8
+    },
+    {
+      "name": "lr_2e-7",
+      "peak_lr": 2e-7
+    },
+    {
+      "name": "lr_2e-6",
+      "peak_lr": 0.000002
+    },
+    {
+      "name": "lr_2e-5",
+      "peak_lr": 0.00002
+    }
+  ],
+  "metrics": {
+    "primary": "v14a6.score_exact_targets NLL/top1 on exact 28 target rows",
+    "secondary": "v14a4 evaluate_clean_family on same gradient clipping semantic holdout",
+    "audit": "full train_steps.jsonl including LR, sampled batch IDs, unclipped gradient norms, clipping coefficients per arm",
+    "baseline_replication": "v14a7 clip_0p5 final u40 NLL and top1 must match within absolute tolerance 0.005"
+  },
+  "decision": {
+    "token_learning": "Same v14a6 rule, baseline NLL improvement >= max(0.05,0.01*baseline NLL) OR top1 improvement >= 0.02",
+    "lr_scale_bottleneck_supported": "lr_2e-8 baseline fails and one or more higher LR arms passes",
+    "lr_scale_alone_did_not_restore_learning": "baseline fails and all larger LR arms fail",
+    "baseline_learning_failure_not_replicated": "2e-8 baseline passes despite v14a7 failure"
+  },
+  "scientific_limit": "One-factor diagnostic, not causal proof of broad model trainability. Larger LR can harm other tasks; no checkpoint promotion."
+}
