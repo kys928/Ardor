@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "designation": "v14a12_supervision_quality_with_fixed_explicit_eos",
+  "date": "2026-10-16",
+  "hypothesis": "Replacing low-information v14a4 chosen-answer prose with researcher-curated causal explanations improves semantic adequacy without losing v14a10 EOS gains.",
+  "only_intervention": "Replace each of the same 28 chosen-answer strings. No prompt, route, family, selected ID, batch order, parent weights, model, optimizer, learning-rate schedule, or EOS token ID changes.",
+  "arms": [
+    {
+      "name": "original_eos_control",
+      "targets": "original v14a10 authored chosen answers with exactly one EOS id=3"
+    },
+    {
+      "name": "corrected_eos",
+      "targets": "28 checked researcher-authored causal explanations with exactly one EOS id=3"
+    }
+  ],
+  "invariant_controls": {
+    "canonical_parent": "SHA256-verified canonical v14a2; independent strict reload per arm",
+    "tokenizer": "tokenizer-v9 52224 vocabulary; EOS id=3; EOT id=7",
+    "train_rows": 28,
+    "holdout_rows": 32,
+    "train_route": "gradient_clipping",
+    "sampling": "v14a6 TargetPulseSampler(seed=928+801) exact same row IDs and order",
+    "updates": 40,
+    "batch_rows": 4,
+    "seed": 928,
+    "optimizer": "fresh all-parameter AdamW; weight_decay=0",
+    "peak_learning_rate": 0.00002,
+    "warmup_updates": 20,
+    "cosine_horizon": 100,
+    "min_learning_rate_ratio": 0.2,
+    "max_sequence_length": 768,
+    "gradient_clip": 0.5,
+    "greedy_max_new_tokens": 72,
+    "eos_labels_per_training_answer": 1,
+    "control_replay_reference": "v14a10 explicit_eos arm at u40, independently stored on S3"
+  },
+  "measured_not_controlled": {
+    "answer_length": "Correcting prose changes target token length and the per-token cross-entropy mixture; record all lengths and tokens.",
+    "reference_termination": "P(EOS/EOT) after reference answer under teacher forcing, not natural stop frequency",
+    "fixed_holdout": "The 32-case holdout was already analyzed in v14a11; treat it as a development diagnostic, not newly blinded evaluation."
+  },
+  "early_abort": "Abort corrected arm if replayed historical v14a10 explicit-EOS control violates preregistered reproduction tolerances.",
+  "preregistered_automatic_retention_checks": {
+    "mean_heldout_reference_boundary_eos_or_eot_gte": 0.8,
+    "high_repetition_cases_lte": 2,
+    "max_heldout_reference_nll_increase": 0.1,
+    "max_heldout_top1_drop": 0.02
+  },
+  "semantic_criterion": {
+    "pending_independent_adjudication": true,
+    "strict_minimum": "Answer must explain the requested mechanism correctly; naming a concept or repeating a generic answer-style phrase does not suffice.",
+    "intended_effect": "At least six more of 32 strictly adequate answers relative to concurrently reproduced control, with improvement in norm_threshold, learning_rate_comparison and false_premise_correction.",
+    "additional_blind_confirmation_required": true
+  },
+  "execution_policy": {
+    "diagnostic_only": true,
+    "save_model_checkpoint": false,
+    "promote_checkpoint": false,
+    "persist_metrics_and_generated_outputs": true
+  }
+}
