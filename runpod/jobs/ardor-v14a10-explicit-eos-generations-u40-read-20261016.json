@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-v14a10-explicit-eos-generations-u40-read-20261016",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/runs/v14a10_eos_supervision_ablation_u40/explicit_eos/gradient_clipping_outputs_u0040.json",
+    "max_bytes": 262144
+  }
+}
