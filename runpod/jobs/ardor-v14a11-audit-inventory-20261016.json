@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-v14a11-audit-inventory-20261016",
+  "kind": "storage",
+  "storage": {
+    "operation": "list",
+    "path": "Ardor/training/runs/v14a10_eos_supervision_ablation_u40/",
+    "max_items": 200
+  }
+}
