@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-v14a8-lr2e5-trajectory-read-20261016",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/runs/sft_v14a8_lr_ablation_v14a7_pulse_u40/lr_2e-5/trajectory.jsonl",
+    "max_bytes": 262144
+  }
+}
