@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "designation": "v14a10_explicit_eos_supervision_one_factor_ablation",
+  "date": "2026-10-16",
+  "research_question": "Can explicit one-token EOS supervision restore proper answer termination and reduce free-generation repetition while preserving held-out reference-continuation learning?",
+  "only_changed_training_variable": "one canonical <eos> id=3 supervised immediately after each unchanged chosen answer",
+  "arms": [
+    {
+      "name": "no_eos",
+      "eos_labels_per_row": 0
+    },
+    {
+      "name": "explicit_eos",
+      "eos_labels_per_row": 1
+    }
+  ],
+  "controls": {
+    "canonical_parent": "same SHA256 verified canonical v14a2 full state, fresh strict load per arm",
+    "tokenizer": "tokenizer_v9 with 52224 vocabulary and exactly mapped EOS=3 EOT=7",
+    "data": "same 28 authored gradient_clipping training rows, four per semantic family, unchanged chosen text and holdout of 32 rows",
+    "sampler": "v14a6 TargetPulseSampler(seed=928+801), same sampled row IDs order across arms",
+    "train_step_count": 40,
+    "batch_rows": 4,
+    "random_seed": 928,
+    "optimizer": "fresh AdamW all trainable weights per arm, weight_decay=0",
+    "peak_lr": 0.00002,
+    "warmup_updates": 20,
+    "cosine_horizon_updates": 100,
+    "min_lr_ratio": 0.2,
+    "gradient_clip": 0.5,
+    "max_len": 768,
+    "greedy_max_gen_tokens": 72,
+    "reference_ce": "original 28 chosen tokens NLL with no EOS for both arms",
+    "reference_heldout_nll": "original 32 chosen answers teacher-forced excluding EOS for both arms",
+    "generation": "same historical greedy argmax EOS/EOT stop and evaluation",
+    "probe_updates": [
+      0,
+      20,
+      40
+    ],
+    "no_checkpoint_promotion": true
+  },
+  "metrics": [
+    "original train-target NLL/top1",
+    "heldout reference-continuation NLL/top1",
+    "first-sentence keyword rubric success (not human judgment)",
+    "EOS and EOT probability after full reference answer",
+    "full-generation trigram repetition rate and high-repetition count",
+    "full-answer semantic rubric success"
+  ],
+  "baseline_reproduction": {
+    "u40_train_target_nll": 0.2719491542331756,
+    "u40_train_target_top1": 0.9571428692530072,
+    "u40_semantic_macro": 0.1,
+    "nll_top1_abs_tolerance": 0.005
+  },
+  "predeclared_decision": {
+    "eos_probability_restored": "u40 mean EOS+EOT p >= 0.1 on 32 holdout reference endings",
+    "repetition_reduced": "u40 high-repetition count falls by >= 8 of 32 AND mean trigram repetition rate falls",
+    "heldout_reference_learning_preserved": "u40 heldout reference NLL regression <= 0.1 AND heldout top1 regression <= 0.02",
+    "promotion": "No promotion regardless of decision; this is a one-seed one-route ablation."
+  },
+  "limitation": "Adding one EOS label per example changes total CE normalization slightly, inseparable from this supervision change. Teacher-forced end-token probability alone does not prove natural answer stopping."
+}

@@ -90,3 +90,17 @@ def test_v14a9_worker_accepts_no_custom_training_controls():
     assert 'v14a9_generalization_decision.json' in source
     assert '"--verify-parent-sha256"' in source
     assert '"--seed"' not in source
+
+
+def test_v14a10_fixed_purpose_runner_registration():
+    repo = Path(__file__).resolve().parents[1]
+    entry = (repo / "scripts/runpod_control_entry.py").read_text(encoding="utf-8")
+    worker = (repo / "scripts/runpod_v14a10_worker.py").read_text(encoding="utf-8")
+    assert 'FIXED_PURPOSE_RUNNERS.add("v14a10_eos_supervision_ablation")' in entry
+    assert 'runner == "v14a10_eos_supervision_ablation"' in entry
+    assert 'scripts/runpod_v14a10_worker.py' in entry
+    assert 'RUNNER = "v14a10_eos_supervision_ablation"' in worker
+    assert '"ardor_v14a10_eos_supervision_ablation.py"' in worker
+    assert 'v14a10_eos_ablation_decision.json' in worker
+    assert '"--verify-parent-sha256"' in worker
+    assert '"--seed"' not in worker
