@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-v14a11-eos-diagnostics-20261016",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/runs/v14a10_eos_supervision_ablation_u40/explicit_eos/generalization_diagnostic_u0040.json",
+    "max_bytes": 120000
+  }
+}
