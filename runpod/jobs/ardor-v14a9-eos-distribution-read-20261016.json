@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-v14a9-eos-distribution-read-20261016",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/runs/v14a9_holdout_generalization_lr2e5_u40/lr_2e-5/generalization_diagnostic_u0040.json",
+    "max_bytes": 262144
+  }
+}
