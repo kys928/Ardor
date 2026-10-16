@@ -3,15 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 
 
-def test_control_entry_registers_v14a5_v14a6_v14a7_with_compatible_cuda_torch():
+def test_control_entry_registers_v14a5_v14a6_v14a7_v14a8_with_cuda():
     root = Path(__file__).resolve().parents[1]
     source = root.joinpath("scripts/runpod_control_entry.py").read_text(encoding="utf-8")
     assert 'FIXED_PURPOSE_RUNNERS.add("v14a5_signal_first_u100")' in source
     assert 'FIXED_PURPOSE_RUNNERS.add("v14a6_learning_dynamics_probe")' in source
     assert 'FIXED_PURPOSE_RUNNERS.add("v14a7_clip_ablation")' in source
+    assert 'FIXED_PURPOSE_RUNNERS.add("v14a8_lr_ablation")' in source
     assert 'runner == "v14a5_signal_first_u100"' in source
     assert 'runner == "v14a6_learning_dynamics_probe"' in source
     assert 'runner == "v14a7_clip_ablation"' in source
+    assert 'runner == "v14a8_lr_ablation"' in source
     assert "https://download.pytorch.org/whl/cu128" in source
     assert "torch==2.7.1" in source
     assert "torch.version.cuda == '12.8'" in source
@@ -19,6 +21,7 @@ def test_control_entry_registers_v14a5_v14a6_v14a7_with_compatible_cuda_torch():
     assert "scripts/runpod_v14a5_worker.py" in source
     assert "scripts/runpod_v14a6_worker.py" in source
     assert "scripts/runpod_v14a7_worker.py" in source
+    assert "scripts/runpod_v14a8_worker.py" in source
     assert "uv run --frozen python scripts/runpod_v14a5_worker.py" not in source
     assert "uv run --frozen python scripts/runpod_v14a6_worker.py" not in source
     assert "uv run --frozen python scripts/runpod_v14a7_worker.py" not in source
@@ -56,5 +59,16 @@ def test_v14a7_worker_pins_reviewed_clip_ablation_command():
     assert '"ardor_v14a7_clip_ablation.py"' in source
     assert '"--verify-parent-sha256"' in source
     assert '"v14a7_clip_ablation_decision.json"' in source
+    assert '"--lr"' not in source
+    assert '"--seed"' not in source
+
+
+def test_v14a8_worker_pins_reviewed_lr_ablation():
+    root = Path(__file__).resolve().parents[1]
+    source = root.joinpath("scripts/runpod_v14a8_worker.py").read_text(encoding="utf-8")
+    assert 'RUNNER = "v14a8_lr_ablation"' in source
+    assert '"ardor_v14a8_lr_ablation.py"' in source
+    assert '"--verify-parent-sha256"' in source
+    assert '"v14a8_lr_ablation_decision.json"' in source
     assert '"--lr"' not in source
     assert '"--seed"' not in source
