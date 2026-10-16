@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""v14a8 single-factor learning-rate ablation: exact v14a8 clip_0p5 target pulse.
+"""v14a8 single-factor learning-rate ablation: exact v14a7 clip_0p5 target pulse.
 
 Every arm starts from the canonical v14a2 parent with a fresh AdamW state,
-uses the identical v14a6/v14a8 28 target rows and 40 batch updates, same
+uses the identical v14a6/v14a7 28 target rows and 40 batch updates, same
 continuation-CE objective, architecture, tokenizer and fixed gradient clip 0.5.
 Only the peak LR scale changes; warmup/cosine schedule SHAPE stays fixed.
 Diagnostic-only: no checkpoint promotion and no broad training changes.
@@ -27,10 +27,10 @@ from Erratum.v14a4_diagnostics import compact_clean, evaluate_clean_family
 
 OUTPUT_DIR = Path(
     "/workspace/Ardor/training/runs/"
-    "sft_v14a8_lr_ablation_v14a6_pulse_u40"
+    "sft_v14a8_lr_ablation_v14a7_pulse_u40"
 )
 POLICY_CONTRACT_PATH = Path(
-    "/opt/Ardor/Erratum/v14a8_lr_ablation_contract_20260920.json"
+    "/opt/Ardor/Erratum/v14a8_lr_ablation_contract_20261016.json"
 )
 
 PULSE_UPDATES = 40
@@ -186,6 +186,11 @@ def arm_result(
 def build_decision(results: Sequence[dict[str, Any]]) -> dict[str, Any]:
     by_name = {str(row["arm"]): row for row in results}
     baseline = by_name["lr_2e-8"]
+    # Ensure the positive control reproduces the original v14a7 pulse under clip=0.5.
+    if abs(float(baseline["final_exact_nll"]) - 5.196875697090512) > 0.005:
+        raise RuntimeError("v14a8 baseline did not reproduce v14a7 u40 exact NLL")
+    if abs(float(baseline["final_exact_top1"]) - 0.27301587507365244) > 0.005:
+        raise RuntimeError("v14a8 baseline did not reproduce v14a7 u40 exact top-1")
     higher = [by_name[name] for name in ("lr_2e-7", "lr_2e-6", "lr_2e-5")]
     recovered = [row for row in higher if row["token_learning_supported"]]
 
@@ -265,7 +270,7 @@ def run_arm(
     write_json(
         arm_dir / "run_config.json",
         {
-            "experiment": "v14a8_lr_ablation_v14a6_pulse_u40",
+            "experiment": "v14a8_lr_ablation_v14a7_pulse_u40",
             "arm": arm_name,
             "max_norm": max_norm,
             "canonical_parent": base.canonical_parent_reference(),
@@ -452,7 +457,7 @@ def run(args) -> None:
     write_json(
         output_dir / "run_config.json",
         {
-            "experiment": "v14a8_lr_ablation_v14a6_pulse_u40",
+            "experiment": "v14a8_lr_ablation_v14a7_pulse_u40",
             "trainer": "Erratum/ardor_v14a8_lr_ablation.py",
             "policy_contract": str(POLICY_CONTRACT_PATH),
             "parent_data_contract": str(base.CONTRACT_PATH),
