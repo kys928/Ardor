@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only four-measure heldout diagnostic worker for exact v14a9 replay."""
+"""Read-only four-measure heldout diagnostic worker for exact v14a8 replay."""
 from __future__ import annotations
 
 import socket
@@ -9,7 +9,7 @@ import traceback
 import runpod_worker as shared
 
 RUNNER = "v14a9_holdout_generalization"
-ENTRY = shared.REPO_ROOT / "Erratum" / "ardor_v14a9_holdout_generalization.py"
+ENTRY = shared.REPO_ROOT / "Erratum" / "ardor_v14a9_holdout_generalization_diagnostic.py"
 OUTPUT = (
     shared.PERSISTENT_ROOT
     / "training"
