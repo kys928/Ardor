@@ -149,9 +149,14 @@ def compare_independent_reviews(case: dict, annotations: list[dict]) -> dict:
     y = evaluate(case, b)
     differing = sorted(k for k in x["statuses"]
                        if x["statuses"][k] != y["statuses"][k])
-    contradictory_disagreement = (
-        (x["contradiction_count"] > 0) != (y["contradiction_count"] > 0)
-    )
+    # A reviewer reporting a *different* material contradiction is also
+    # a disagreement. Exact span matching is deliberately conservative;
+    # equivalent paraphrases can be reconciled during human adjudication.
+    a_spans = {issue["evidence"].strip()
+               for issue in a.get("contradictions", [])}
+    b_spans = {issue["evidence"].strip()
+               for issue in b.get("contradictions", [])}
+    contradictory_disagreement = a_spans != b_spans
     resolved = not differing and not contradictory_disagreement
     return {
         "case_id": case["id"],
