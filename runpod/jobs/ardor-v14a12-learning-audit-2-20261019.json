@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-v14a12-learning-audit-2-20261019",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/runs/v14a12_supervision_quality_eos_u40/original_eos_control/explicit_eos/train_steps.jsonl",
+    "max_bytes": 1048576
+  }
+}
