@@ -32,12 +32,12 @@ PROPOSITIONS: dict[str, dict[str, str]] = {
     "optimizer_stability": {
         "spike_precedes_update": "A spike in computed gradient can create pressure for unstable updates",
         "gradient_bounded_before_optimizer": "Clipping bounds gradients before they are supplied to the optimizer",
-        "mitigates_not_guarantees": "Reduces risk of unstable update without claiming a universal stability guarantee",
+        "mitigates_update_risk": "Explains how clipping reduces the risk of an unstable subsequent optimizer update",
     },
     "backprop_stability": {
         "backprop_computes_gradients": "Backpropagation first computes gradients",
         "clipping_after_backward": "Clipping acts on computed gradients after backward and before optimizer",
-        "next_update_mitigation": "Primary protection is for subsequent updates, not a claim to fix all backprop errors",
+        "next_update_mitigation": "Explains why the following optimizer update is less exposed to an excessive computed gradient",
     },
     "learning_rate_comparison": {
         "clipping_conditional_gradient_control": "Clipping conditionally reduces a gradient exceeding a threshold",
@@ -127,6 +127,42 @@ def evaluate(case: dict, annotation: dict) -> dict:
         "statuses": statuses,
         "contradiction_count": len(contradictions),
         "non_blind_exploratory_only": True,
+    }
+
+
+
+def compare_independent_reviews(case: dict, annotations: list[dict]) -> dict:
+    """Require two distinct reviewer IDs; hold disagreement for adjudication.
+
+    Structural independence (different reviewer IDs) is enforceable. Actual
+    independence/competence must be verified outside the software. A consensus
+    result is not automatically a scientific truth claim.
+    """
+    if len(annotations) != 2:
+        raise ValueError("Exactly two reviewer annotations required")
+    a, b = annotations
+    if a.get("reviewer") == b.get("reviewer"):
+        raise ValueError("Reviewer IDs must be distinct")
+    if a.get("response") != b.get("response"):
+        raise ValueError("Reviewers must assess identical response text")
+    x = evaluate(case, a)
+    y = evaluate(case, b)
+    differing = sorted(k for k in x["statuses"]
+                       if x["statuses"][k] != y["statuses"][k])
+    contradictory_disagreement = (
+        (x["contradiction_count"] > 0) != (y["contradiction_count"] > 0)
+    )
+    resolved = not differing and not contradictory_disagreement
+    return {
+        "case_id": case["id"],
+        "reviewers": sorted((x["reviewer"], y["reviewer"])),
+        "reviewer_adequacy": [x["adequate"], y["adequate"]],
+        "proposition_disagreements": differing,
+        "contradiction_disagreement": contradictory_disagreement,
+        "resolved": resolved,
+        "adequate": bool(resolved and x["adequate"] and y["adequate"]),
+        "human_independence_unverified": True,
+        "human_adjudication_required": not resolved,
     }
 
 
