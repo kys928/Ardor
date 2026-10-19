@@ -18,9 +18,13 @@ jobs:
         with:
           python-version: "3.11"
       - name: Verify exact source reproduction and factual scoring contract
-        run: python -m unittest discover -s tests -p "test_v14a13_supervision_audit.py" -v
+        run: python -m unittest discover -s tests -p "test_v14a13*.py" -v
       - name: Generate the 28-pair CPU-only supervision audit
         run: python -m Erratum.v14a13_supervision_audit --output-dir v14a13_audit_output
+      - name: Export duplicate-free curated v14a13 candidate (no trainer integration)
+        run: python -m Erratum.v14a13_curated_supervision --output-dir v14a13_audit_output
+      - name: Run source-grounded adversarial scoring challenges
+        run: python -m Erratum.v14a13_validate_rubric --output-dir v14a13_audit_output
       - name: Display full pair audit in job log for review
         run: cat v14a13_audit_output/prompt_target_audit.md
       - uses: actions/upload-artifact@v4
