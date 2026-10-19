@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-v14a12-original-generations-read-20261019",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/runs/v14a12_supervision_quality_eos_u40/original_eos_control/explicit_eos/gradient_clipping_outputs_u0040.json",
+    "max_bytes": 262144
+  }
+}
