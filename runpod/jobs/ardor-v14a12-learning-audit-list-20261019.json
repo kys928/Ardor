@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-v14a12-learning-audit-list-20261019",
+  "kind": "storage",
+  "storage": {
+    "operation": "list",
+    "path": "Ardor/training/runs/v14a12_supervision_quality_eos_u40/",
+    "max_items": 100
+  }
+}
