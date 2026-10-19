@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "id": "ardor-v14a12-corrected-diagnostic-read-20261019",
+  "kind": "storage",
+  "storage": {
+    "operation": "read_text",
+    "path": "Ardor/training/runs/v14a12_supervision_quality_eos_u40/corrected_eos/explicit_eos/generalization_diagnostic_u0040.json",
+    "max_bytes": 262144
+  }
+}
