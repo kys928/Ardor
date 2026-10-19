@@ -111,6 +111,20 @@ class ReferenceGroundedChallengeTest(unittest.TestCase):
                          ["mechanisms_distinguished"])
         self.assertTrue(paired["human_adjudication_required"])
 
+    def test_different_contradiction_spans_remain_unresolved(self):
+        c = next(x for x in CHALLENGES if x["id"] == "optimizer_overclaim")
+        case, first = annotations_for_challenge(c)
+        second = deepcopy(first)
+        second["reviewer"] = "independent-reviewer-B"
+        second["contradictions"] = [{
+            "evidence": "Therefore, it guarantees every update is safe.",
+            "description": "Overclaim of universal safety",
+        }]
+        result = compare_independent_reviews(case, [first, second])
+        self.assertFalse(result["resolved"])
+        self.assertTrue(result["contradiction_disagreement"])
+        self.assertTrue(result["human_adjudication_required"])
+
     def test_one_reviewer_cannot_certify_truth(self):
         # An explicit limitation: a dishonest or mistaken reviewer can mark
         # incorrect content supported. This evaluator validates annotations,
