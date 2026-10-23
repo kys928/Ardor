@@ -21,6 +21,8 @@ jobs:
         run: python -m Erratum.v14a14_signal_dataset --output-dir v14a14_signal_output
       - name: Freeze unseen 28-row holdout and its manifest
         run: python -m Erratum.v14a14_blind_panel --output-dir v14a14_signal_output
+      - name: Verify pinned controlled-run preflight (without loading any model)
+        run: python -m Erratum.v14a14_controlled_eos_train --preflight-only
       - name: Show only digest and counts, never reveal the blind prompts in logs
         run: |
           python - <<'PY'
