@@ -20,8 +20,8 @@ from Erratum.v14a14_blind_panel import build_holdout
 
 PIN = {
     "control_sha256": "09341553fb2b689c244e52ec47c6cdc736c964ca68d8ea61843cf5eb7f92745d",
-    "revised_sha256": "4b3afb700aa1cd7f880010949860a33aa127842db2148b2b1d6060accb70e3a9",
-    "proposition_audit_sha256": "53f151386d07411d7b8ee3ab4aecddc35e067e7db965505a98da4cd9f3602820",
+    "revised_sha256": "80d7716b29d06469d7bf4dc3ef91cbb4a0ff69490d93bb9845888c1d21451ab3",
+    "proposition_audit_sha256": "9682546efc3b561845a71d858455434d7f8389081221a6e38dfb123aa7319899",
     "train_prompt_sha256": "b94c802089c466d3fc64f1b0ba0274d4fa032c44da3c8fc4a9b5a56a41422627",
     "holdout_prompt_sha256": "cb1b0a03e139039fc1a4e0301f6e62f1a6b298e9920f7e9a944d7745a5c4a589",
     "holdout_rows_and_references_sha256": "9e1b57a09804cea5c3d4ee6fb505c68c220c6925868939e19814b44d3ee81220",
