@@ -317,6 +317,48 @@ def build_pairs() -> tuple[list[dict], list[dict], dict]:
     return control, revised, {"manifest": summary, "evidence": evidence}
 
 
+
+def human_review_packet(rows: list[dict], evidence: list[dict]) -> str:
+    lines = [
+        "# v14a14 — independent reviewer training-data packet",
+        "",
+        "80 matched-source questions. Review ONLY intervention answers here.",
+        "Judge all required causal propositions and scan the FULL answer for",
+        "contradictions, unsupported guarantees, question mismatch and ambiguity.",
+        "Automatic spans establish traceability, NOT semantic truth.",
+        "Do not consult the model or holdout to choose a passing answer.",
+        "",
+        "Decision per example: ADEQUATE, INADEQUATE, or UNCERTAIN.",
+        "Any missing essential claim or material contradiction is inadequate.",
+        "",
+    ]
+    for i, (r, e) in enumerate(zip(rows, evidence), 1):
+        lines.extend([
+            f"## {i:02d} — {r['id']} ({r['semantic_family']})",
+            "",
+            "**Prompt**",
+            "",
+            r["prompt"],
+            "",
+            "**Proposed supervision**",
+            "",
+            r["chosen"],
+            "",
+            "**Required proposition evidence (verify semantically)**",
+            "",
+        ])
+        for q in e["requirements"]:
+            lines.append(f"- {q['proposition_id']}: {q['evidence']}")
+        lines.extend([
+            "",
+            "Verdict: [ ] Adequate  [ ] Inadequate  [ ] Uncertain",
+            "",
+            "Contradiction or missing claim: ________________________",
+            "",
+        ])
+    return "\n".join(lines)
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--output-dir", type=Path, default=Path("v14a14_signal_output"))
@@ -331,6 +373,24 @@ def main() -> None:
             "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in obj),
             encoding="utf-8",
         )
+    (args.output_dir / "v14a14_human_training_review.md").write_text(
+        human_review_packet(b, audit["evidence"]), encoding="utf-8",
+    )
+    (args.output_dir / "review_attestation_template.json").write_text(
+        json.dumps({
+            "proposition_audit_sha256": audit["manifest"]["proposition_audit_sha256"],
+            "train_prompt_sha256": audit["manifest"]["revised_paired_prompt_sha256"],
+            "reviewers": [
+                {"reviewer_id": "REVIEWER_1_NOT_YET_ASSIGNED",
+                 "status": "pending", "approved_row_ids": [],
+                 "contradictions_found_unresolved": True},
+                {"reviewer_id": "REVIEWER_2_NOT_YET_ASSIGNED",
+                 "status": "pending", "approved_row_ids": [],
+                 "contradictions_found_unresolved": True},
+            ],
+            "resolved_disagreements": False,
+        }, sort_keys=True, indent=2) + "\n", encoding="utf-8",
+    )
     (args.output_dir / "training_manifest.json").write_text(
         json.dumps(audit["manifest"], ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
