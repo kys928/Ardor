@@ -168,7 +168,7 @@ def select_rows() -> list[dict]:
         pool = sorted(pools[family],
                       key=lambda r: (hashlib.sha256(("v14a14|" + r["id"]).encode()).hexdigest(), r["id"]))
         if len(pool) < desired:
-            raise RuntimeError(f"Insufficient unique prompts for {family}: {len(pool)} < {desired}")
+            raise RuntimeError(f"Insufficient unique prompts for {family}: {len(pool)} < {desired}; available_by_family={ {k: len(v) for k, v in pools.items()} }")
         chosen[family] = pool[:desired]
     rows = []
     for family in FAMILY_ORDER:
