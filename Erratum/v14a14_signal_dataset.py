@@ -748,63 +748,112 @@ def human_review_packet(rows: list[dict], evidence: list[dict]) -> str:
 
 
 def review_only_amended_ten(rows: list[dict], evidence: list[dict]) -> str:
-    """Follow-up packet: the 10 human-rejected supervision answers only."""
+    """Archive second-pass judgments, preserving exactly what was reviewed."""
     lines = [
-        "# v14a14 — ten corrected answers, second-pass review",
+        "# v14a14 — second-pass verdicts (historical snapshot)",
         "",
-        "Human round 1 judged 70/80 adequate and 10/80 inadequate.",
-        "The other 70 proposed answers were preserved without changes.",
-        "These ten revisions are unapproved and require renewed review.",
-        "This packet is not an independent second reviewer attestation.",
+        "The ten first-pass inadequate answers were revised and re-adjudicated.",
+        "Round two returned nine ADEQUATE and one INADEQUATE (Case 15).",
+        "This is not an approval of subsequently rewritten answers.",
         "",
     ]
     for row, ev in zip(rows, evidence):
         amendment = ev["review_round_1_repair"]
         if amendment is None:
             continue
-        new = row["chosen"]
+        reviewed = ev["review_round_2_submitted_answer"]
         added = amendment["added_text"]
         if amendment["mode"] == "prepend":
-            if not new.startswith(added + " "):
-                raise RuntimeError(f"Cannot reverse prepended repair: {row['id']}")
-            old = new[len(added) + 1:]
+            if not reviewed.startswith(added + " "):
+                raise RuntimeError(f"Cannot reconstruct first-pass answer: {row['id']}")
+            old = reviewed[len(added) + 1:]
         elif amendment["mode"] == "append":
-            if not new.endswith(" " + added):
-                raise RuntimeError(f"Cannot reverse appended repair: {row['id']}")
-            old = new[:-(len(added) + 1)]
+            if not reviewed.endswith(" " + added):
+                raise RuntimeError(f"Cannot reconstruct first-pass answer: {row['id']}")
+            old = reviewed[:-(len(added) + 1)]
         else:
             raise RuntimeError("Unknown repair mode")
         lines.extend([
             f"## Case {ev['review_round_1_case_number']:02d} — {row['id']}",
             "",
-            "Reason for original rejection: " + amendment["reason"],
+            "Original rejection: " + amendment["reason"],
             "",
             "**Prompt**",
             "",
             row["prompt"],
             "",
-            "**Original inadequate answer**",
+            "**Original round-one inadequate answer**",
             "",
             old,
             "",
-            "**Revised proposed answer**",
+            "**Round-two submitted answer (historical, frozen)**",
             "",
-            new,
+            reviewed,
             "",
-            "**Required proposition evidence**",
+            "**User round-two verdict:** " + ev["review_round_2_judgment"],
+            "",
+            "**Current target changed since round two:** "
+                + ("YES: new review required" if ev.get("review_round_3_status") else "NO"),
+            "",
+        ])
+    if sum(ev["review_round_1_repair"] is not None for ev in evidence) != 10:
+        raise RuntimeError("Expected ten first-round revisions")
+    return "\n".join(lines)
+
+
+def review_round_3_seven(rows: list[dict], evidence: list[dict]) -> str:
+    """Only seven prompt-specific newly rewritten answers for fresh judgment."""
+    lines = [
+        "# v14a14 — third-pass supervision review: seven rewritten answers",
+        "",
+        "Round two accepted 9/10 corrections and rejected Case 15. The reviewer",
+        "also flagged prompt-insensitive boilerplate in otherwise adequate",
+        "Cases 33, 35, 36, 44, 45 and 47.",
+        "The seven answers below have changed after round-two judgments.",
+        "Previous acceptance does NOT apply to newly changed answer text.",
+        "Judge strictly: required mechanism, requested task details, no",
+        "factual contradiction; check causal depth and prompt adaptation.",
+        "Review: ADEQUATE / INADEQUATE / UNCERTAIN.",
+        "",
+    ]
+    seen = []
+    for row, ev in zip(rows, evidence):
+        if ev.get("review_round_3_status") != "PENDING_RE_ADJUDICATION":
+            continue
+        seen.append(ev["review_round_1_case_number"])
+        lines.extend([
+            f"## Case {ev['review_round_1_case_number']:02d} — {row['id']}",
+            "",
+            "**Why this case was rewritten**",
+            "",
+            ev["review_round_3_reason"],
+            "",
+            "**Prompt (unchanged)**",
+            "",
+            row["prompt"],
+            "",
+            "**Previously reviewed answer (round two)**",
+            "",
+            ev["review_round_3_prior_answer"],
+            "",
+            "**Newly proposed answer (round three)**",
+            "",
+            row["chosen"],
+            "",
+            "**Required factual propositions**",
             "",
         ])
         for item in ev["requirements"]:
             lines.append(f"- {item['proposition_id']}: {item['evidence']}")
         lines.extend([
             "",
-            "Re-adjudication: [ ] Adequate  [ ] Inadequate  [ ] Uncertain",
+            "Verdict: [ ] Adequate  [ ] Inadequate  [ ] Uncertain",
             "",
-            "Reason / unresolved issue: __________________________________",
+            "Reason: __________________________",
             "",
         ])
-    if sum(ev["review_round_1_repair"] is not None for ev in evidence) != 10:
-        raise RuntimeError("Expected ten revised examples")
+    if sorted(seen) != [15, 33, 35, 36, 44, 45, 47]:
+        raise RuntimeError("Round-three review packet must hold exactly seven cases")
     return "\n".join(lines)
 
 
@@ -827,6 +876,9 @@ def main() -> None:
     )
     (args.output_dir / "v14a14_round2_ten_corrections.md").write_text(
         review_only_amended_ten(b, audit["evidence"]), encoding="utf-8",
+    )
+    (args.output_dir / "v14a14_round3_seven_rewrites.md").write_text(
+        review_round_3_seven(b, audit["evidence"]), encoding="utf-8",
     )
     (args.output_dir / "review_attestation_template.json").write_text(
         json.dumps({
