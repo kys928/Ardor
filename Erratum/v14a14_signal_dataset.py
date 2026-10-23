@@ -342,6 +342,7 @@ def select_rows() -> list[dict]:
 def build_pairs() -> tuple[list[dict], list[dict], dict]:
     raw = select_rows()
     control, revised, evidence = [], [], []
+    unrepaired_answers = {}
     for family in FAMILY_ORDER:
         family_rows = [x for x in raw if x["semantic_family"] == family]
         for idx, original in enumerate(family_rows):
@@ -368,6 +369,7 @@ def build_pairs() -> tuple[list[dict], list[dict], dict]:
                 raise RuntimeError(f"Missing factual proposition for {family}")
             application = APPLICATION[family][cue_idx]
             original_proposed_answer = " ".join([*clauses, application])
+            unrepaired_answers[original["id"]] = original_proposed_answer
             new_answer = apply_human_review_repair(original["id"], original_proposed_answer)
             control.append({**base_row, "chosen": str(original["chosen"]).strip()})
             revised.append({**base_row, "chosen": new_answer})
@@ -396,6 +398,23 @@ def build_pairs() -> tuple[list[dict], list[dict], dict]:
             })
     for old, new in zip(control, revised):
         assert old["id"] == new["id"] and old["prompt"] == new["prompt"]
+    # Programmatically reconstruct the original, already-reviewed 80-target
+    # artifact. This verifies precisely ten edits, with all 70 previously
+    # adequate responses byte-for-byte unchanged.
+    prior_candidate = [
+        {**r, "chosen": unrepaired_answers[r["id"]]} for r in revised
+    ]
+    prior_digest = digest(prior_candidate)
+    if prior_digest != "4b3afb700aa1cd7f880010949860a33aa127842db2148b2b1d6060accb70e3a9":
+        raise RuntimeError("Pre-adjudication 80-target source no longer reproduces")
+    modified_ids = {
+        r["id"] for r in revised if r["chosen"] != unrepaired_answers[r["id"]]
+    }
+    if modified_ids != set(REVIEW_ROUND_1_INADEQUATE):
+        raise RuntimeError("Only ten human-rejected target answers may change")
+    for old, new in zip(prior_candidate, revised):
+        if old["id"] not in modified_ids and old != new:
+            raise RuntimeError("Accepted target was mutated")
     if len({r["chosen"] for r in revised}) < 55:
         raise RuntimeError("Revised examples lack sufficient answer diversity")
     if {x["id"] for x in revised if x["id"] in REVIEW_ROUND_1_INADEQUATE} != set(REVIEW_ROUND_1_INADEQUATE):
@@ -413,6 +432,9 @@ def build_pairs() -> tuple[list[dict], list[dict], dict]:
         "data_source": "verified v14a4 train generator plus 20 explicit cue-matched authored prompts; v14a12 IDs excluded",
         "train_cases": len(revised),
         "review_round_1_summary": {
+            "previous_80_causal_sha256": prior_digest,
+            "amended_case_count": len(modified_ids),
+            "untouched_adequate_text_count": len(revised) - len(modified_ids),
             "original_cases": 80, "adequate_original": 70,
             "inadequate_original": 10, "uncertain_original": 0,
             "repaired_case_numbers": list(REVIEW_ROUND_1_INADEQUATE_CASES),
