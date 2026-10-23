@@ -136,6 +136,103 @@ APPLICATION = {
 }
 
 
+# First-pass human adjudication of all 80 originally generated answers.
+# Exactly ten original proposals were judged inadequate; all remaining
+# proposals were judged adequate. This is ONE human review, NOT independent
+# two-reviewer approval. The 10 revised examples require fresh adjudication.
+REVIEW_ROUND_1_INADEQUATE = {
+    "v14a4_train_gradient_clipping_0050": {
+        "case": 9, "mode": "append",
+        "reason": "First-principles request omitted the gradient-to-parameter-update causal link.",
+        "text": (
+            "In basic gradient descent, the optimizer forms a parameter change "
+            "from the gradient and learning rate. At a fixed learning rate, a "
+            "larger raw gradient can cause an excessively large parameter step "
+            "that overshoots; clipping reduces that signal before the update."
+        ),
+    },
+    "v14a4_train_gradient_clipping_0071": {
+        "case": 14, "mode": "append",
+        "reason": "Large gradient was not causally linked to the optimizer's parameter update.",
+        "text": (
+            "For ordinary gradient descent, the update is minus learning rate "
+            "times the gradient, so an enormous gradient at fixed learning rate "
+            "can drive an enormous parameter step. Adaptive optimizers can "
+            "change that scaling, but clipping still constrains the incoming "
+            "computed gradient."
+        ),
+    },
+    "v14a4_train_gradient_clipping_0092": {
+        "case": 15, "mode": "append",
+        "reason": "First-principles answer missed how computed derivatives influence the update.",
+        "text": (
+            "Backpropagation computes the derivatives used by the optimizer. "
+            "If their magnitudes become extreme, they can contribute to an "
+            "unstable subsequent parameter update; clipping scales down the "
+            "computed gradient before that update is performed."
+        ),
+    },
+    "v14a4_train_gradient_clipping_0051": {
+        "case": 24, "mode": "prepend",
+        "reason": "Prompt requested that the concept be named explicitly.",
+        "text": "The concept is global gradient-norm clipping.",
+    },
+    "v14a4_train_gradient_clipping_0109": {
+        "case": 33, "mode": "prepend",
+        "reason": "Prompt required leading with the named concept.",
+        "text": "The relevant concept is gradient clipping.",
+    },
+    "v14a4_train_gradient_clipping_0067": {
+        "case": 35, "mode": "prepend",
+        "reason": "Prompt required leading with the named concept.",
+        "text": "The relevant concept is gradient clipping.",
+    },
+    "v14a4_train_gradient_clipping_0004": {
+        "case": 36, "mode": "prepend",
+        "reason": "Prompt required leading with the named concept.",
+        "text": "The relevant concept is gradient clipping.",
+    },
+    "v14a4_train_gradient_clipping_0046": {
+        "case": 44, "mode": "prepend",
+        "reason": "Prompt required leading with the named concept.",
+        "text": "The relevant concept is gradient clipping.",
+    },
+    "v14a14_train_gradient_clipping_backprop_stability_01": {
+        "case": 45, "mode": "append",
+        "reason": "Prompt asked specifically what clipping cannot repair retroactively.",
+        "text": (
+            "Because clipping happens only after gradient computation, it "
+            "cannot retroactively undo numerical overflow, non-finite "
+            "intermediate values, or a failed calculation that already "
+            "occurred inside the backward pass."
+        ),
+    },
+    "v14a14_train_gradient_clipping_backprop_stability_03": {
+        "case": 47, "mode": "append",
+        "reason": "Gradient accumulation required an accumulation-specific sequence.",
+        "text": (
+            "With gradient accumulation, backpropagation runs for each "
+            "microbatch and the gradients accumulate. The usual procedure "
+            "is to clip the accumulated gradient before the optimizer step, "
+            "not to treat clipping as a substitute for backward computation."
+        ),
+    },
+}
+REVIEW_ROUND_1_INADEQUATE_CASES = (9, 14, 15, 24, 33, 35, 36, 44, 45, 47)
+if sorted(item["case"] for item in REVIEW_ROUND_1_INADEQUATE.values()) != sorted(REVIEW_ROUND_1_INADEQUATE_CASES):
+    raise RuntimeError("Human adjudication case-to-ID mapping drift")
+
+
+def apply_human_review_repair(row_id: str, original_answer: str) -> str:
+    amendment = REVIEW_ROUND_1_INADEQUATE.get(row_id)
+    if amendment is None:
+        return original_answer
+    if amendment["mode"] == "prepend":
+        return amendment["text"] + " " + original_answer
+    if amendment["mode"] == "append":
+        return original_answer + " " + amendment["text"]
+    raise RuntimeError(f"Unknown review-amendment mode for {row_id}")
+
 def normalize(value: str) -> str:
     return " ".join(str(value).casefold().split())
 
@@ -270,7 +367,8 @@ def build_pairs() -> tuple[list[dict], list[dict], dict]:
             if len(keys) != len(clauses):
                 raise RuntimeError(f"Missing factual proposition for {family}")
             application = APPLICATION[family][cue_idx]
-            new_answer = " ".join([*clauses, application])
+            original_proposed_answer = " ".join([*clauses, application])
+            new_answer = apply_human_review_repair(original["id"], original_proposed_answer)
             control.append({**base_row, "chosen": str(original["chosen"]).strip()})
             revised.append({**base_row, "chosen": new_answer})
             evidence.append({
@@ -284,11 +382,26 @@ def build_pairs() -> tuple[list[dict], list[dict], dict]:
                 "unsupported_claim_or_contradiction_review": "author_checked_pending_independent_review",
                 "reviewer_independence": False,
                 "approval": "PENDING_HUMAN_REVIEW",
+                "review_round_1_case_number": len(evidence) + 1,
+                "review_round_1_original_judgment": (
+                    "inadequate" if original["id"] in REVIEW_ROUND_1_INADEQUATE else "adequate"
+                ),
+                "review_round_1_repair": (
+                    {"reason": REVIEW_ROUND_1_INADEQUATE[original["id"]]["reason"],
+                     "mode": REVIEW_ROUND_1_INADEQUATE[original["id"]]["mode"],
+                     "added_text": REVIEW_ROUND_1_INADEQUATE[original["id"]]["text"]}
+                    if original["id"] in REVIEW_ROUND_1_INADEQUATE else None
+                ),
+                "review_round_2_status": "PENDING_REVIEW",
             })
     for old, new in zip(control, revised):
         assert old["id"] == new["id"] and old["prompt"] == new["prompt"]
     if len({r["chosen"] for r in revised}) < 55:
         raise RuntimeError("Revised examples lack sufficient answer diversity")
+    if {x["id"] for x in revised if x["id"] in REVIEW_ROUND_1_INADEQUATE} != set(REVIEW_ROUND_1_INADEQUATE):
+        raise RuntimeError("Some adjudicated row IDs were not in the deterministic selection")
+    if sum(r["review_round_1_original_judgment"] == "inadequate" for r in evidence) != 10:
+        raise RuntimeError("Incorrect review outcome count")
     for new, rec in zip(revised, evidence):
         if not all(part["evidence"] in new["chosen"] for part in rec["requirements"]):
             raise RuntimeError("Incomplete proposition evidence")
@@ -299,6 +412,13 @@ def build_pairs() -> tuple[list[dict], list[dict], dict]:
         "status": "DRAFT_NOT_TRAINING_APPROVED",
         "data_source": "verified v14a4 train generator plus 20 explicit cue-matched authored prompts; v14a12 IDs excluded",
         "train_cases": len(revised),
+        "review_round_1_summary": {
+            "original_cases": 80, "adequate_original": 70,
+            "inadequate_original": 10, "uncertain_original": 0,
+            "repaired_case_numbers": list(REVIEW_ROUND_1_INADEQUATE_CASES),
+            "repair_status": "revised_10_pending_readjudication",
+            "independent_second_review_status": "PENDING",
+        },
         "per_family": dict(Counter(r["semantic_family"] for r in revised)),
         "origin_counts": dict(Counter(r["data_origin"] for r in revised)),
         "distinct_prompts": len({normalize(r["prompt"]) for r in revised}),
@@ -323,6 +443,9 @@ def human_review_packet(rows: list[dict], evidence: list[dict]) -> str:
         "# v14a14 — independent reviewer training-data packet",
         "",
         "80 matched-source questions. Review ONLY intervention answers here.",
+        "First-pass results: 70 adequate, 10 inadequate; the 10 amended answers",
+        "and the overall corpus are PENDING new review and second reviewer.",
+        "Prior adequate judgments were for unchanged answer text only.",
         "Judge all required causal propositions and scan the FULL answer for",
         "contradictions, unsupported guarantees, question mismatch and ambiguity.",
         "Automatic spans establish traceability, NOT semantic truth.",
@@ -335,6 +458,9 @@ def human_review_packet(rows: list[dict], evidence: list[dict]) -> str:
     for i, (r, e) in enumerate(zip(rows, evidence), 1):
         lines.extend([
             f"## {i:02d} — {r['id']} ({r['semantic_family']})",
+            "",
+            "First-pass original judgment: " + e["review_round_1_original_judgment"].upper(),
+            ("Repair reason: " + e["review_round_1_repair"]["reason"]) if e["review_round_1_repair"] else "Original answer preserved exactly.",
             "",
             "**Prompt**",
             "",
@@ -389,6 +515,10 @@ def main() -> None:
                  "contradictions_found_unresolved": True},
             ],
             "resolved_disagreements": False,
+            "round_1_original_adequate": 70,
+            "round_1_original_inadequate": 10,
+            "round_1_revised_case_numbers_pending_recheck": list(REVIEW_ROUND_1_INADEQUATE_CASES),
+            "revised_10_independent_review_pending": True,
         }, sort_keys=True, indent=2) + "\n", encoding="utf-8",
     )
     (args.output_dir / "training_manifest.json").write_text(
