@@ -69,3 +69,27 @@ Updated SHA-256:
 - Proposition audit with human-review metadata: 9682546efc3b561845a71d858455434d7f8389081221a6e38dfb123aa7319899
 
 The training preflight pins both new digests and retains the exact original control, 80-prompt sequence, and 28-case unseen holdout fingerprints. The approval attestation template remains unsigned. **No CUDA training or checkpoint promotion has been authorized or performed.**
+
+
+## Second-pass adjudication and prompt-sensitive rewrites — 23 October 2026
+
+The human reviewer re-adjudicated the ten round-one repairs, recording **9 adequate, 1 inadequate (Case 15)**, with **0 uncertain**. The reviewer also noted that previously adequate Cases 33, 35, 36, 44, 45 and 47 reused too much family-level boilerplate and requested better adaptation to each prompt. That critique is a *supervision-diversity concern*, not a retroactive factual failure judgment.
+
+Exactly **seven** targeted current answers were replaced:
+- **15:** explicit first-principles gradient-descent update relationship Δθ = −η∇θL, explaining why a large gradient can produce a large parameter step at fixed learning rate.
+- **33:** lead with clipping and emphasize rescaling an already-computed backward signal.
+- **35:** emphasize spike creation during backward computation and conditional norm clipping before optimizer use.
+- **36:** emphasize the computed-gradient/optimizer-input boundary and unchanged subthreshold gradients.
+- **44:** center stabilization of the subsequent update without claiming backward-pass numerical guarantees.
+- **45:** center the limitation that clipping cannot retroactively repair numerical problems during backward computation.
+- **47:** center gradient accumulation across microbatches, then clipping accumulated gradients before the optimizer step.
+
+Rewrites for six cases previously marked adequate require **new review of the changed texts**. Case 15's new revision also requires re-adjudication. Earlier review approvals apply only to the previously submitted answer strings. All seven remain marked **PENDING_RE_ADJUDICATION**.
+
+Strong source-integrity requirements:
+1. Prior round-one 80-answer data digest remains independently reconstructible and unchanged: 4b3afb700aa1cd7f880010949860a33aa127842db2148b2b1d6060accb70e3a9. Exactly ten first-round inadequate rows were changed in round two; all 70 first-round accepted answer strings stayed byte-for-byte unchanged.
+2. Prior round-two submitted data digest remains independently reproducible: 80d7716b29d06469d7bf4dc3ef91cbb4a0ff69490d93bb9845888c1d21451ab3. Its frozen proposition-audit digest remains 9682546efc3b561845a71d858455434d7f8389081221a6e38dfb123aa7319899.
+3. **Active round-three** revised-arm data digest is **70796738b3023c243caf5bc678de12f826086008c8a2d6c91d80f91465dfbd7c**, with active proposition-audit digest **c0c8f20aa5dc787931e165475b090c1f0223d4cb3dc08fa4cc7c67660680a6ab**.
+4. The original control, all 80 prompt texts, and all 28 blind evaluation references remain unchanged.
+
+The third-pass targeted review packet is **v14a14_round3_seven_rewrites.md**. The round-two review packet remains an archival snapshot showing the exact responses judged (not the currently rewritten answers). The export code, pinned CUDA preflight and all 10 CPU tests passed. **No actual CUDA training or checkpoint promotion has occurred.** Two genuine independent reviewers and final adjudication remain necessary before training is enabled.
