@@ -1,11 +1,15 @@
 """v14a14 CPU-only contract: no model, checkpoint, tokenizer or GPU loaded."""
 import unittest
+import tempfile
+import json
+from pathlib import Path
 from collections import Counter
 
 from Erratum.v14a14_signal_dataset import (
     build_pairs, FAMILIES_TARGET, normalize, select_rows, digest,
 )
 from Erratum.v14a14_blind_panel import build_holdout
+from Erratum.v14a14_controlled_eos_train import PIN, preflight, verify_data_review
 from Erratum.v14a13_proposition_evaluator import PROPOSITIONS, applicable
 
 
@@ -75,6 +79,41 @@ class NewSupervisionContract(unittest.TestCase):
             self.assertNotIn(normalize(case["chosen"]), control_answers | intervention_answers)
         self.assertEqual(sum(r["question_class"] == "collision_comparison"
                              for r in self.holdout), 1)
+
+    def test_pinned_preflight_requires_exact_input_hashes(self):
+        old, new, panel, pins = preflight()
+        self.assertEqual(pins, PIN)
+        self.assertEqual(len(old), 80)
+        self.assertEqual(len(new), 80)
+        self.assertEqual(len(panel), 28)
+
+    def test_unsigned_attestation_blocks_training(self):
+        ids = [r["id"] for r in self.revised]
+        doc = {
+            "proposition_audit_sha256": PIN["proposition_audit_sha256"],
+            "train_prompt_sha256": PIN["train_prompt_sha256"],
+            "reviewers": [
+                {"reviewer_id": "A", "status": "pending", "approved_row_ids": ids},
+                {"reviewer_id": "B", "status": "approved_after_review",
+                 "approved_row_ids": ids}
+            ],
+            "resolved_disagreements": True,
+        }
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "review.json"
+            p.write_text(json.dumps(doc), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                verify_data_review(p, ids)
+            doc["reviewers"][0]["status"] = "approved_after_review"
+            doc["reviewers"][1]["contradictions_found_unresolved"] = True
+            p.write_text(json.dumps(doc), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                verify_data_review(p, ids)
+            doc["reviewers"][1]["contradictions_found_unresolved"] = False
+            doc["reviewers"][1]["reviewer_id"] = "A"
+            p.write_text(json.dumps(doc), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                verify_data_review(p, ids)
 
     def test_branches_are_diagnostics_only(self):
         self.assertEqual(self.audit["manifest"]["status"], "DRAFT_NOT_TRAINING_APPROVED")
