@@ -130,12 +130,35 @@ def run(args) -> None:
     if base.EXPECTED_SPECIAL_IDS["<eos>"] not in special["eos_ids"]:
         raise RuntimeError("EOS is not an allowed generation stop token")
 
+    # Quantify the unavoidable different CE-token exposure caused by answer
+    # length. Matched prompt rows do NOT guarantee matched target token counts.
+    token_exposure = {}
+    for label, rows in (("original_80", original), ("causal_80", corrected)):
+        lengths = [len(base.encode(tok, r["chosen"])) for r in rows]
+        if not all(0 < n + 1 < args.max_len for n in lengths):
+            raise RuntimeError("EOS answer exceeds or empties max token context")
+        by_family = {}
+        for family in sorted({r["semantic_family"] for r in rows}):
+            ix = [i for i, r in enumerate(rows) if r["semantic_family"] == family]
+            by_family[family] = {
+                "rows": len(ix), "chosen_tokens": sum(lengths[i] for i in ix),
+                "mean_chosen_tokens": sum(lengths[i] for i in ix) / len(ix),
+            }
+        token_exposure[label] = {
+            "chosen_tokens_per_one_pass": sum(lengths),
+            "mean_chosen_tokens": sum(lengths) / len(lengths),
+            "min_chosen_tokens": min(lengths),
+            "max_chosen_tokens": max(lengths),
+            "one_eos_label_per_row_per_exposure": True,
+            "by_family": by_family,
+        }
     root = Path(args.output_dir)
     root.mkdir(parents=True, exist_ok=True)
     prev.write_json(root / "v14a14_frozen_experiment.json", {
         "pins": pins, "reviewer_ids": [r["reviewer_id"] for r in reviewer_data["reviewers"]],
         "retention": PROMOTION_CRITERIA, "arms": ["original_80", "causal_80"],
         "same_train_prompts": True, "same_seed": args.seed,
+        "target_token_exposure_per_single_dataset_pass": token_exposure,
         "eos_one_token_per_answer": True, "steps_each": eos.TOTAL_UPDATES,
         "control_original_v14a4_answers_60_and_cue_matched_legacy_answers_20": True,
         "heldout_seen_during_training": False, "checkpoint_saved": False,
