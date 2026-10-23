@@ -146,6 +146,68 @@ def digest(value: object) -> str:
     ).hexdigest()
 
 
+
+# New concept-specific questions fill the verified shortfall in the v14a4
+# source: 12 distinct non-collision prompts per ordinary family but only 4
+# false-premise prompts. They are researcher-written, not random paraphrases.
+# Tuples: (cue_index, distinct question frame). Each embeds the exact source
+# cue to ensure original-family answer compatibility is checkable.
+EXTENSION_CASES = {
+"backprop_stability": [
+(0, "An autograd pass has completed and {cue}. What has already happened, and what cannot be fixed retroactively by clipping?"),
+(1, "A training engineer is debugging this situation: {cue}. Place clipping correctly between derivative computation and AdamW."),
+(2, "During accumulation, an intern notices that {cue}. Does clipping avert the backward computation itself, or the next update?"),
+(3, "Investigate the order of operations when {cue}. Name the data produced by backward computation before any clipping."),
+],
+"learning_rate_comparison": [
+(0, "A new practitioner mistakes a single-batch norm cap for changing every optimizer step: {cue}. Correct that identification."),
+(1, "During a training review, someone combines two different controls: {cue}. Explain which control acts conditionally."),
+(2, "A loss spike occurs but the configured optimizer step size should remain unchanged: {cue}. Contrast the two interventions."),
+(3, "The training trace shows that {cue}. Which quantity is altered, and which optimizer setting remains separate?"),
+],
+"false_premise_correction": [
+(0, "Correct this risky misconception from an optimization lecture: {cue}. Why does the stated causal direction fail?"),
+(0, "A report describes the following as a safety guarantee: {cue}. Reject or accept the premise, then identify the real protection."),
+(0, "A student writes this unqualified conclusion: {cue}. What is the actual effect on update stability?"),
+(1, "A teammate misunderstands a sudden outlier: {cue}. Explain why the statement is not a valid optimizer-safety principle."),
+(1, "A reviewer endorses this claim: {cue}. Which operation, if any, genuinely mitigates update instability?"),
+(1, "Would the following be a valid training rule: {cue}? Correct it with a causal description of gradient clipping."),
+(2, "A group suggests leaving spikes untouched for faster convergence: {cue}. What dangerous assumption is hidden here?"),
+(2, "During a code review, an engineer repeats: {cue}. What does the optimizer actually risk?"),
+(2, "In a training retrospective, the claim is: {cue}. Explain whether more magnitude is necessarily beneficial."),
+(3, "A workshop slide offers this explanation: {cue}. Diagnose what it reverses."),
+(3, "A teammate says the following prevents overshooting: {cue}. What genuinely limits the incoming signal?"),
+(3, "Correct this high-confidence but false statement: {cue}. State the right sequence after backward computation."),
+],
+}
+
+
+def _authored_extensions(family: str, rows: list[dict]) -> list[dict]:
+    cases = EXTENSION_CASES.get(family, [])
+    if not cases:
+        return []
+    cues = TRAIN_CUES[(ROUTE, family)]
+    from_source = {}
+    for r in rows:
+        for idx, cue in enumerate(cues):
+            if cue.casefold() in r["prompt"].casefold() and idx not in from_source:
+                from_source[idx] = r
+    if len(from_source) < 4:
+        raise RuntimeError(f"Missing control cue sources for {family}")
+    extra = []
+    for i, (cue_idx, template) in enumerate(cases, 1):
+        donor = from_source[cue_idx]
+        item = dict(donor)
+        item.update({
+            "id": f"v14a14_train_gradient_clipping_{family}_{i:02d}",
+            "prompt": template.format(cue=cues[cue_idx]),
+            "prompt_style": "v14a14_authored_scenario",
+            "data_origin": "new_prompt_with_legacy_cue_matched_control",
+        })
+        extra.append(item)
+    return extra
+
+
 def select_rows() -> list[dict]:
     raw = build_train_rows()
     pools = {name: [] for name in FAMILIES_TARGET}
@@ -168,7 +230,9 @@ def select_rows() -> list[dict]:
         pool = sorted(pools[family],
                       key=lambda r: (hashlib.sha256(("v14a14|" + r["id"]).encode()).hexdigest(), r["id"]))
         if len(pool) < desired:
-            raise RuntimeError(f"Insufficient unique prompts for {family}: {len(pool)} < {desired}; available_by_family={ {k: len(v) for k, v in pools.items()} }")
+            pool = pool + _authored_extensions(family, pool)
+        if len(pool) < desired:
+            raise RuntimeError(f"Insufficient unique prompts for {family}: {len(pool)} < {desired}")
         chosen[family] = pool[:desired]
     rows = []
     for family in FAMILY_ORDER:
@@ -191,6 +255,7 @@ def build_pairs() -> tuple[list[dict], list[dict], dict]:
                 "question_class": original["question_class"],
                 "collision_route": None, "prompt": prompt,
                 "prompt_style": original["prompt_style"], "answer_style": original["answer_style"],
+                "data_origin": original.get("data_origin", "unaltered_v14a4_source"),
             }
             if original["question_class"] != ("false_premise_correction" if family == "false_premise_correction" else "normal"):
                 raise RuntimeError("Question class mismatch")
@@ -232,9 +297,10 @@ def build_pairs() -> tuple[list[dict], list[dict], dict]:
     summary = {
         "version": "v14a14-signal-1",
         "status": "DRAFT_NOT_TRAINING_APPROVED",
-        "data_source": "verified v14a4 train generator; v14a12 selected IDs excluded",
+        "data_source": "verified v14a4 train generator plus 20 explicit cue-matched authored prompts; v14a12 IDs excluded",
         "train_cases": len(revised),
         "per_family": dict(Counter(r["semantic_family"] for r in revised)),
+        "origin_counts": dict(Counter(r["data_origin"] for r in revised)),
         "distinct_prompts": len({normalize(r["prompt"]) for r in revised}),
         "distinct_revised_answers": len({normalize(r["chosen"]) for r in revised}),
         "original_control_paired_prompt_sha256": digest([(r["id"], r["prompt"]) for r in control]),
@@ -244,7 +310,7 @@ def build_pairs() -> tuple[list[dict], list[dict], dict]:
         "proposition_audit_sha256": digest(evidence),
         "assurance": "required proposition spans present; truth and contradictions require independent review",
         "training_eligible": False,
-        "known_confound": "answer lengths differ between arms and original legacy answers may contain noise",
+        "known_confound": "answer lengths differ; 20 authored prompts pair with cue-matched original-family legacy answers, not historical examples",
     }
     if summary["original_control_paired_prompt_sha256"] != summary["revised_paired_prompt_sha256"]:
         raise RuntimeError("Paired prompt sequences differ")
