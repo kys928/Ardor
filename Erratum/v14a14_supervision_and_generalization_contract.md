@@ -13,8 +13,8 @@ Verified source limitation: v14a4 has at most 12 unique non-collision questions 
 SHA-256 pinned input fingerprints:
 - Paired prompts: b94c802089c466d3fc64f1b0ba0274d4fa032c44da3c8fc4a9b5a56a41422627
 - Original 80: 09341553fb2b689c244e52ec47c6cdc736c964ca68d8ea61843cf5eb7f92745d
-- Revised 80: 4b3afb700aa1cd7f880010949860a33aa127842db2148b2b1d6060accb70e3a9
-- 80-row proposition evidence: 53f151386d07411d7b8ee3ab4aecddc35e067e7db965505a98da4cd9f3602820
+- Revised 80: 80d7716b29d06469d7bf4dc3ef91cbb4a0ff69490d93bb9845888c1d21451ab3
+- 80-row proposition evidence: 9682546efc3b561845a71d858455434d7f8389081221a6e38dfb123aa7319899
 
 Each revised target records verbatim evidence for its family's required causal propositions plus a cue-specific application. This is a source-traceability audit, **not** an automated truth or contradiction check. All 80 must receive substantive independent human adjudication before any GPU run.
 
@@ -48,3 +48,24 @@ https://docs.pytorch.org/docs/main/generated/torch.nn.utils.clip_grad_norm_.html
 https://docs.pytorch.org/docs/stable/generated/torch.optim.AdamW.html
 
 Research stop condition: genuine human adjudication of all 80 target answers is outstanding, so GPU training remains blocked.
+
+## First independent-of-author human adjudication — 23 October 2026
+
+A user reviewer assessed the 80 proposed intervention answers under the strict factual-adequacy standard:
+
+- 70 adequate; 10 inadequate; 0 uncertain.
+- Failing cases 09, 14, 15: requests for first-principles explanation need an explicit causal connection from exploding gradients to optimizer parameter changes.
+- Case 24: requested concept name was missing.
+- Cases 33, 35, 36 and 44: instructions explicitly said to lead with the relevant concept; original answer led with generic backpropagation wording.
+- Case 45: no direct explanation that clipping cannot undo errors that happened during backpropagation.
+- Case 47: no accumulation-specific treatment of clipping the accumulated gradient before the optimizer step.
+
+The first-pass review is human feedback, **not** two independent human approvals. Only those ten targeted answers were amended. The dataset builder programmatically reconstructs and verifies the exact prior causal-arm SHA-256 (4b3afb700aa1cd7f880010949860a33aa127842db2148b2b1d6060accb70e3a9) and asserts that exactly the ten rejected IDs changed. All **70 accepted answer texts remain byte-for-byte unchanged**; the unchanged baseline and frozen holdout are preserved. The 10 revised answers are now **PENDING RE-ADJUDICATION**, and a second independent review is required for training.
+
+A focused second-pass report is generated as v14a14_round2_ten_corrections.md. It lists each rejected answer, the corrected target, original prompt, original reviewer rationale, and proposition evidence for rechecking.
+
+Updated SHA-256:
+- Revised-arm 80-row records: 80d7716b29d06469d7bf4dc3ef91cbb4a0ff69490d93bb9845888c1d21451ab3
+- Proposition audit with human-review metadata: 9682546efc3b561845a71d858455434d7f8389081221a6e38dfb123aa7319899
+
+The training preflight pins both new digests and retains the exact original control, 80-prompt sequence, and 28-case unseen holdout fingerprints. The approval attestation template remains unsigned. **No CUDA training or checkpoint promotion has been authorized or performed.**
