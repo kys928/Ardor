@@ -8,7 +8,7 @@ from collections import Counter
 from Erratum.v14a14_signal_dataset import (
     build_pairs, FAMILIES_TARGET, normalize, select_rows, digest,
     REVIEW_ROUND_1_INADEQUATE, REVIEW_ROUND_1_INADEQUATE_CASES,
-    review_only_amended_ten,
+    review_only_amended_ten, review_round_3_seven, ROUND_3_TARGETED_REWRITES,
 )
 from Erratum.v14a14_blind_panel import build_holdout
 from Erratum.v14a14_controlled_eos_train import PIN, preflight, verify_data_review
@@ -138,10 +138,38 @@ class NewSupervisionContract(unittest.TestCase):
             self.assertEqual(e["review_round_2_status"], "PENDING_REVIEW")
         # Exact pre-adjudication hash is rebuilt and verified by build_pairs().
         packet = review_only_amended_ten(self.revised, self.audit["evidence"])
-        self.assertEqual(packet.count("**Original inadequate answer**"), 10)
-        self.assertEqual(packet.count("**Revised proposed answer**"), 10)
+        self.assertEqual(packet.count("**Original round-one inadequate answer**"), 10)
+        self.assertEqual(packet.count("**Round-two submitted answer (historical, frozen)**"), 10)
         self.assertIn("Case 45", packet)
         self.assertIn("gradient accumulation", packet.lower())
+        round3 = review_round_3_seven(self.revised, self.audit["evidence"])
+        self.assertEqual(round3.count("**Newly proposed answer (round three)**"), 7)
+        self.assertEqual(round3.count("**Previously reviewed answer (round two)**"), 7)
+        self.assertEqual(set(ROUND_3_TARGETED_REWRITES),
+                         {e["id"] for e in self.audit["evidence"]
+                          if e.get("review_round_3_status") == "PENDING_RE_ADJUDICATION"})
+        self.assertEqual(self.audit["manifest"]["review_round_2_summary"]["adequate"], 9)
+        self.assertEqual(self.audit["manifest"]["review_round_2_summary"]["inadequate"], 1)
+        self.assertEqual(self.audit["manifest"]["review_round_2_summary"]
+                         ["round_2_causal_sha256"],
+                         "80d7716b29d06469d7bf4dc3ef91cbb4a0ff69490d93bb9845888c1d21451ab3")
+        self.assertEqual(self.audit["manifest"]["review_round_2_summary"]
+                         ["round_2_evidence_sha256"],
+                         "9682546efc3b561845a71d858455434d7f8389081221a6e38dfb123aa7319899")
+        by_id = {r["id"]: r for r in self.revised}
+        case15 = by_id["v14a4_train_gradient_clipping_0092"]["chosen"]
+        self.assertIn("Δθ = −η∇θL", case15)
+        self.assertIn("fixed learning rate", case15)
+        case47 = by_id["v14a14_train_gradient_clipping_backprop_stability_03"]["chosen"]
+        self.assertIn("gradient accumulation", case47.lower())
+        self.assertIn("microbatch", case47)
+        case45 = by_id["v14a14_train_gradient_clipping_backprop_stability_01"]["chosen"]
+        self.assertIn("cannot retroactively repair", case45)
+        for case in (33,35,36,44):
+            pair = next((r,e) for r,e in zip(self.revised,self.audit["evidence"])
+                        if e["review_round_1_case_number"] == case)
+            self.assertTrue(pair[0]["chosen"].startswith("Gradient clipping"))
+
 
     def test_branches_are_diagnostics_only(self):
         self.assertEqual(self.audit["manifest"]["status"], "DRAFT_NOT_TRAINING_APPROVED")
