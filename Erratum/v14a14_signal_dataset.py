@@ -233,6 +233,175 @@ def apply_human_review_repair(row_id: str, original_answer: str) -> str:
         return original_answer + " " + amendment["text"]
     raise RuntimeError(f"Unknown review-amendment mode for {row_id}")
 
+# Human review round 2: nine of the ten first-round repairs were accepted.
+# Case 15 remained inadequate. Independently, the reviewer requested less
+# template reuse in 33/35/36/44/45/47 despite their adequate factual scores.
+# These seven fresh rewrites are NEW candidates, not approved by that review.
+REVIEW_ROUND_2_ADEQUATE_CASES = (9, 14, 24, 33, 35, 36, 44, 45, 47)
+REVIEW_ROUND_2_INADEQUATE_CASES = (15,)
+
+# Explicit individual responses, authored according to the *particular*
+# source question; unlike the generic family CLAIMS and APPLICATION pool.
+# Each proposition span is deliberately short and verbatim within the answer.
+ROUND_3_TARGETED_REWRITES = {
+    "v14a4_train_gradient_clipping_0092": {
+        "case": 15,
+        "reason": "First-principles explanation must connect gradient magnitude to the parameter-step equation.",
+        "chosen": (
+            "Backpropagation computes the loss gradient with respect to model parameters. "
+            "For ordinary gradient descent, the update is Δθ = −η∇θL: at a fixed "
+            "learning rate η, an exploding gradient can produce an excessively "
+            "large parameter change that overshoots or destabilizes training. "
+            "Gradient clipping reduces an oversized computed gradient before "
+            "the optimizer uses it, mitigating that update risk."
+        ),
+        "support": {
+            "explosion_harms_stability": (
+                "an exploding gradient can produce an excessively "
+                "large parameter change that overshoots or destabilizes training"
+            ),
+            "clipping_mitigates_spike": (
+                "Gradient clipping reduces an oversized computed gradient "
+                "before the optimizer uses it"
+            ),
+        },
+        "application": "For ordinary gradient descent, the update is Δθ = −η∇θL",
+    },
+    "v14a4_train_gradient_clipping_0109": {
+        "case": 33,
+        "reason": "Lead with mechanism and adapt to rescaling an already-computed oversized backward signal.",
+        "chosen": (
+            "Gradient clipping is the intervention: when backpropagation has "
+            "computed an excessively large gradient, it rescales that gradient "
+            "before the optimizer step. Because the optimizer receives a reduced "
+            "spike instead of the original magnitude, the subsequent parameter "
+            "update is less exposed to instability."
+        ),
+        "support": {
+            "backprop_computes_gradients": "backpropagation has computed an excessively large gradient",
+            "clipping_after_backward": "it rescales that gradient before the optimizer step",
+            "next_update_mitigation": "the subsequent parameter update is less exposed to instability",
+        },
+        "application": "the optimizer receives a reduced spike instead of the original magnitude",
+    },
+    "v14a4_train_gradient_clipping_0067": {
+        "case": 35,
+        "reason": "Explain how the observed spike arises, rather than reusing a generic stabilization answer.",
+        "chosen": (
+            "Gradient clipping handles the spike produced by backpropagation. "
+            "The backward pass first computes parameter gradients; if their "
+            "norm exceeds a chosen cap, clipping scales them down before "
+            "the optimizer uses them. This reduces exposure to an excessive "
+            "update-driving signal without preventing the spike itself "
+            "from arising during backward computation."
+        ),
+        "support": {
+            "backprop_computes_gradients": "The backward pass first computes parameter gradients",
+            "clipping_after_backward": (
+                "clipping scales them down before the optimizer uses them"
+            ),
+            "next_update_mitigation": "This reduces exposure to an excessive update-driving signal",
+        },
+        "application": "without preventing the spike itself from arising during backward computation",
+    },
+    "v14a4_train_gradient_clipping_0004": {
+        "case": 36,
+        "reason": "Emphasize the boundary between computed gradient and optimizer input.",
+        "chosen": (
+            "Gradient clipping bounds a large signal after the backward pass "
+            "has computed the gradient. For norm clipping, an above-threshold "
+            "gradient is scaled down, while smaller gradients are unchanged. "
+            "The optimizer then uses this bounded result for its parameter "
+            "update, avoiding direct use of the full outlier magnitude."
+        ),
+        "support": {
+            "backprop_computes_gradients": "the backward pass has computed the gradient",
+            "clipping_after_backward": (
+                "Gradient clipping bounds a large signal after the backward pass "
+                "has computed the gradient"
+            ),
+            "next_update_mitigation": (
+                "avoiding direct use of the full outlier magnitude"
+            ),
+        },
+        "application": "The optimizer then uses this bounded result for its parameter update",
+    },
+    "v14a4_train_gradient_clipping_0046": {
+        "case": 44,
+        "reason": "Explain next-update stabilization without guaranteeing backward-pass safety.",
+        "chosen": (
+            "Gradient clipping reduces the risk from an oversized gradient "
+            "produced by backpropagation. Once the backward pass has calculated "
+            "parameter derivatives, clipping limits excessive gradient "
+            "magnitude before the optimizer updates weights. This can protect "
+            "the next update from a spike; it does not make numerical "
+            "operations inside the backward pass infallible."
+        ),
+        "support": {
+            "backprop_computes_gradients": "the backward pass has calculated parameter derivatives",
+            "clipping_after_backward": (
+                "clipping limits excessive gradient magnitude before the optimizer updates weights"
+            ),
+            "next_update_mitigation": "This can protect the next update from a spike",
+        },
+        "application": "it does not make numerical operations inside the backward pass infallible",
+    },
+    "v14a14_train_gradient_clipping_backprop_stability_01": {
+        "case": 45,
+        "reason": "Put retroactive failure limitation at the center of the answer.",
+        "chosen": (
+            "Autograd has already run backpropagation and produced gradient "
+            "tensors. Norm clipping can now rescale an oversized computed "
+            "gradient before the optimizer step, lowering risk in the "
+            "following parameter update. It cannot retroactively repair "
+            "numerical overflow, non-finite intermediate values, or a "
+            "failed computation that happened during the backward pass."
+        ),
+        "support": {
+            "backprop_computes_gradients": (
+                "Autograd has already run backpropagation and produced gradient tensors"
+            ),
+            "clipping_after_backward": (
+                "Norm clipping can now rescale an oversized computed "
+                "gradient before the optimizer step"
+            ),
+            "next_update_mitigation": "lowering risk in the following parameter update",
+        },
+        "application": (
+            "It cannot retroactively repair numerical overflow, non-finite "
+            "intermediate values, or a failed computation that happened during the backward pass"
+        ),
+    },
+    "v14a14_train_gradient_clipping_backprop_stability_03": {
+        "case": 47,
+        "reason": "Center the gradient-accumulation sequence and the question's contrast.",
+        "chosen": (
+            "Clipping protects the next optimizer update, not the backward "
+            "computations themselves. With gradient accumulation, each "
+            "microbatch's backward pass adds to parameter gradient buffers. "
+            "After the intended accumulation steps, global-norm clipping "
+            "can limit the accumulated gradients before the optimizer "
+            "step. That reduces the spike reaching the update but cannot "
+            "undo a numerical error in any backward pass."
+        ),
+        "support": {
+            "backprop_computes_gradients": (
+                "each microbatch's backward pass adds to parameter gradient buffers"
+            ),
+            "clipping_after_backward": (
+                "After the intended accumulation steps, global-norm clipping "
+                "can limit the accumulated gradients before the optimizer step"
+            ),
+            "next_update_mitigation": (
+                "That reduces the spike reaching the update"
+            ),
+        },
+        "application": "Clipping protects the next optimizer update, not the backward computations themselves",
+    },
+}
+assert sorted(item["case"] for item in ROUND_3_TARGETED_REWRITES.values()) == [15, 33, 35, 36, 44, 45, 47]
+
+
 def normalize(value: str) -> str:
     return " ".join(str(value).casefold().split())
 
@@ -421,6 +590,66 @@ def build_pairs() -> tuple[list[dict], list[dict], dict]:
         raise RuntimeError("Some adjudicated row IDs were not in the deterministic selection")
     if sum(r["review_round_1_original_judgment"] == "inadequate" for r in evidence) != 10:
         raise RuntimeError("Incorrect review outcome count")
+    # Before replacing any round-two answer, verify its exact frozen dataset
+    # AND per-proposition audit. Later edits must not overwrite past evidence.
+    round_2_digest = digest(revised)
+    round_2_evidence_digest = digest(evidence)
+    if round_2_digest != "80d7716b29d06469d7bf4dc3ef91cbb4a0ff69490d93bb9845888c1d21451ab3":
+        raise RuntimeError("Human round-2 reviewed dataset drift")
+    if round_2_evidence_digest != "9682546efc3b561845a71d858455434d7f8389081221a6e38dfb123aa7319899":
+        raise RuntimeError("Human round-2 evidence drift")
+    seen_rewrites = set()
+    for row, ev in zip(revised, evidence):
+        previous_answer = row["chosen"]
+        if row["id"] in REVIEW_ROUND_1_INADEQUATE:
+            case = ev["review_round_1_case_number"]
+            ev["review_round_2_judgment"] = (
+                "ADEQUATE" if case in REVIEW_ROUND_2_ADEQUATE_CASES
+                else "INADEQUATE"
+            )
+            ev["review_round_2_submitted_answer"] = previous_answer
+        if row["id"] not in ROUND_3_TARGETED_REWRITES:
+            continue
+        repair = ROUND_3_TARGETED_REWRITES[row["id"]]
+        if repair["case"] != ev["review_round_1_case_number"]:
+            raise RuntimeError("Round-three revised wrong case")
+        if row["semantic_family"] not in PROPOSITIONS:
+            raise RuntimeError("Unknown family")
+        if set(repair["support"]) != set(PROPOSITIONS[row["semantic_family"]]):
+            raise RuntimeError("A round-three repair omitted necessary propositions")
+        if any(value not in repair["chosen"] for value in [*repair["support"].values(), repair["application"]]):
+            raise RuntimeError("Round-three source span not in chosen answer")
+        if previous_answer == repair["chosen"]:
+            raise RuntimeError("Round-three answer not actually changed")
+        row["chosen"] = repair["chosen"]
+        ev["review_round_3_prior_answer"] = previous_answer
+        ev["review_round_3_reason"] = repair["reason"]
+        ev["requirements"] = [
+            {
+                "proposition_id": key,
+                "status": "supported",
+                "evidence": repair["support"][key],
+                "source": "round_3_authored_revision_pending_independent_factual_review",
+            }
+            for key in PROPOSITIONS[row["semantic_family"]]
+        ]
+        ev["contextual_application"] = repair["application"]
+        ev["review_round_3_status"] = "PENDING_RE_ADJUDICATION"
+        seen_rewrites.add(row["id"])
+    if seen_rewrites != set(ROUND_3_TARGETED_REWRITES):
+        raise RuntimeError("Incomplete round-three rewrite coverage")
+    # The source snapshots guarantee only the targeted seven answers changed.
+    # Previous reviewer judgments must not be extrapolated to their rewrites.
+    current_by_id = {r["id"]: r["chosen"] for r in revised}
+    previous_by_id = {
+        r["id"]: (
+            ev["review_round_3_prior_answer"]
+            if ev.get("review_round_3_status") else r["chosen"]
+        )
+        for r, ev in zip(revised, evidence)
+    }
+    if {rid for rid in current_by_id if current_by_id[rid] != previous_by_id[rid]} != seen_rewrites:
+        raise RuntimeError("Round-three revisions modified unexpected cases")
     for new, rec in zip(revised, evidence):
         if not all(part["evidence"] in new["chosen"] for part in rec["requirements"]):
             raise RuntimeError("Incomplete proposition evidence")
@@ -440,6 +669,16 @@ def build_pairs() -> tuple[list[dict], list[dict], dict]:
             "repaired_case_numbers": list(REVIEW_ROUND_1_INADEQUATE_CASES),
             "repair_status": "revised_10_pending_readjudication",
             "independent_second_review_status": "PENDING",
+        },
+        "review_round_2_summary": {
+            "adjudicated": 10, "adequate": 9, "inadequate": 1,
+            "inadequate_cases": list(REVIEW_ROUND_2_INADEQUATE_CASES),
+            "seven_rewrites_pending_re_adjudication": sorted(
+                x["case"] for x in ROUND_3_TARGETED_REWRITES.values()
+            ),
+            "round_2_causal_sha256": round_2_digest,
+            "round_2_evidence_sha256": round_2_evidence_digest,
+            "second_independent_reviewer": "NOT_PERFORMED",
         },
         "per_family": dict(Counter(r["semantic_family"] for r in revised)),
         "origin_counts": dict(Counter(r["data_origin"] for r in revised)),
@@ -605,6 +844,7 @@ def main() -> None:
             "round_1_original_adequate": 70,
             "round_1_original_inadequate": 10,
             "round_1_revised_case_numbers_pending_recheck": list(REVIEW_ROUND_1_INADEQUATE_CASES),
+            "round_3_revised_case_numbers_pending_recheck": sorted(x["case"] for x in ROUND_3_TARGETED_REWRITES.values()),
             "revised_10_independent_review_pending": True,
         }, sort_keys=True, indent=2) + "\n", encoding="utf-8",
     )
