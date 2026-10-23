@@ -7,6 +7,8 @@ from collections import Counter
 
 from Erratum.v14a14_signal_dataset import (
     build_pairs, FAMILIES_TARGET, normalize, select_rows, digest,
+    REVIEW_ROUND_1_INADEQUATE, REVIEW_ROUND_1_INADEQUATE_CASES,
+    review_only_amended_ten,
 )
 from Erratum.v14a14_blind_panel import build_holdout
 from Erratum.v14a14_controlled_eos_train import PIN, preflight, verify_data_review
@@ -114,6 +116,32 @@ class NewSupervisionContract(unittest.TestCase):
             p.write_text(json.dumps(doc), encoding="utf-8")
             with self.assertRaises(ValueError):
                 verify_data_review(p, ids)
+
+    def test_round1_repair_keeps_all_70_accepted_unchanged(self):
+        self.assertEqual(len(REVIEW_ROUND_1_INADEQUATE), 10)
+        self.assertEqual(tuple(sorted(REVIEW_ROUND_1_INADEQUATE_CASES)),
+                         tuple(sorted([9, 14, 15, 24, 33, 35, 36, 44, 45, 47])))
+        manifest = self.audit["manifest"]
+        status = manifest["review_round_1_summary"]
+        self.assertEqual(status["original_cases"], 80)
+        self.assertEqual(status["adequate_original"], 70)
+        self.assertEqual(status["inadequate_original"], 10)
+        self.assertEqual(status["untouched_adequate_text_count"], 70)
+        self.assertEqual(status["amended_case_count"], 10)
+        self.assertEqual(status["previous_80_causal_sha256"],
+                         "4b3afb700aa1cd7f880010949860a33aa127842db2148b2b1d6060accb70e3a9")
+        self.assertEqual(sum(r["review_round_1_repair"] is not None
+                             for r in self.audit["evidence"]), 10)
+        for r, e in zip(self.revised, self.audit["evidence"]):
+            self.assertEqual(e["review_round_1_case_number"],
+                             self.revised.index(r) + 1)
+            self.assertEqual(e["review_round_2_status"], "PENDING_REVIEW")
+        # Exact pre-adjudication hash is rebuilt and verified by build_pairs().
+        packet = review_only_amended_ten(self.revised, self.audit["evidence"])
+        self.assertEqual(packet.count("**Original inadequate answer**"), 10)
+        self.assertEqual(packet.count("**Revised proposed answer**"), 10)
+        self.assertIn("Case 45", packet)
+        self.assertIn("gradient accumulation", packet.lower())
 
     def test_branches_are_diagnostics_only(self):
         self.assertEqual(self.audit["manifest"]["status"], "DRAFT_NOT_TRAINING_APPROVED")
