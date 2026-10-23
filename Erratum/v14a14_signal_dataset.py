@@ -507,6 +507,68 @@ def human_review_packet(rows: list[dict], evidence: list[dict]) -> str:
     return "\n".join(lines)
 
 
+
+def review_only_amended_ten(rows: list[dict], evidence: list[dict]) -> str:
+    """Follow-up packet: the 10 human-rejected supervision answers only."""
+    lines = [
+        "# v14a14 — ten corrected answers, second-pass review",
+        "",
+        "Human round 1 judged 70/80 adequate and 10/80 inadequate.",
+        "The other 70 proposed answers were preserved without changes.",
+        "These ten revisions are unapproved and require renewed review.",
+        "This packet is not an independent second reviewer attestation.",
+        "",
+    ]
+    for row, ev in zip(rows, evidence):
+        amendment = ev["review_round_1_repair"]
+        if amendment is None:
+            continue
+        new = row["chosen"]
+        added = amendment["added_text"]
+        if amendment["mode"] == "prepend":
+            if not new.startswith(added + " "):
+                raise RuntimeError(f"Cannot reverse prepended repair: {row['id']}")
+            old = new[len(added) + 1:]
+        elif amendment["mode"] == "append":
+            if not new.endswith(" " + added):
+                raise RuntimeError(f"Cannot reverse appended repair: {row['id']}")
+            old = new[:-(len(added) + 1)]
+        else:
+            raise RuntimeError("Unknown repair mode")
+        lines.extend([
+            f"## Case {ev['review_round_1_case_number']:02d} — {row['id']}",
+            "",
+            "Reason for original rejection: " + amendment["reason"],
+            "",
+            "**Prompt**",
+            "",
+            row["prompt"],
+            "",
+            "**Original inadequate answer**",
+            "",
+            old,
+            "",
+            "**Revised proposed answer**",
+            "",
+            new,
+            "",
+            "**Required proposition evidence**",
+            "",
+        ])
+        for item in ev["requirements"]:
+            lines.append(f"- {item['proposition_id']}: {item['evidence']}")
+        lines.extend([
+            "",
+            "Re-adjudication: [ ] Adequate  [ ] Inadequate  [ ] Uncertain",
+            "",
+            "Reason / unresolved issue: __________________________________",
+            "",
+        ])
+    if sum(ev["review_round_1_repair"] is not None for ev in evidence) != 10:
+        raise RuntimeError("Expected ten revised examples")
+    return "\n".join(lines)
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--output-dir", type=Path, default=Path("v14a14_signal_output"))
@@ -523,6 +585,9 @@ def main() -> None:
         )
     (args.output_dir / "v14a14_human_training_review.md").write_text(
         human_review_packet(b, audit["evidence"]), encoding="utf-8",
+    )
+    (args.output_dir / "v14a14_round2_ten_corrections.md").write_text(
+        review_only_amended_ten(b, audit["evidence"]), encoding="utf-8",
     )
     (args.output_dir / "review_attestation_template.json").write_text(
         json.dumps({
