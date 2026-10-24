@@ -706,7 +706,7 @@ def build_pairs() -> tuple[list[dict], list[dict], dict]:
     reviewed_cases = set()
     case_35 = None
     for row, ev in zip(revised, evidence):
-        if "review_round_3_submitted_answer" not in ev:
+        if ev.get("review_round_3_status") != "PENDING_RE_ADJUDICATION":
             continue
         case = ev["review_round_1_case_number"]
         ev["review_round_3_submitted_answer"] = row["chosen"]
@@ -924,7 +924,7 @@ def review_round_3_seven(rows: list[dict], evidence: list[dict]) -> str:
     ]
     seen = []
     for row, ev in zip(rows, evidence):
-        if ev.get("review_round_3_status") != "PENDING_RE_ADJUDICATION":
+        if "review_round_3_submitted_answer" not in ev:
             continue
         seen.append(ev["review_round_1_case_number"])
         lines.extend([
