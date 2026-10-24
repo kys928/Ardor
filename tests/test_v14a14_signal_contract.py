@@ -147,7 +147,7 @@ class NewSupervisionContract(unittest.TestCase):
         self.assertEqual(round3.count("**Previously reviewed answer (round two)**"), 7)
         self.assertEqual(set(ROUND_3_TARGETED_REWRITES),
                          {e["id"] for e in self.audit["evidence"]
-                          if e.get("review_round_3_status") == "PENDING_RE_ADJUDICATION"})
+                          if e.get("review_round_3_status") == "HUMAN_ROUND_3_REVIEWED"})
         self.assertEqual(self.audit["manifest"]["review_round_2_summary"]["adequate"], 9)
         self.assertEqual(self.audit["manifest"]["review_round_2_summary"]["inadequate"], 1)
         self.assertEqual(self.audit["manifest"]["review_round_2_summary"]
