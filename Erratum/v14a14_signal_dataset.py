@@ -401,6 +401,50 @@ ROUND_3_TARGETED_REWRITES = {
 }
 assert sorted(item["case"] for item in ROUND_3_TARGETED_REWRITES.values()) == [15, 33, 35, 36, 44, 45, 47]
 
+# Human third-pass results (seven submitted texts): six adequate,
+# Case 35 inadequate for explaining clipping without explaining the *origin*
+# of a backward-pass gradient spike. The human also asked for a final targeted
+# improvement without further user review at this stage.
+REVIEW_ROUND_3_ADEQUATE_CASES = (15, 33, 36, 44, 45, 47)
+REVIEW_ROUND_3_INADEQUATE_CASES = (35,)
+ROUND_4_CASE35_CANDIDATE = {
+    "id": "v14a4_train_gradient_clipping_0067",
+    "case": 35,
+    "reason": (
+        "Explicitly explain gradient amplification by chain-rule Jacobian "
+        "products through layers or unrolled time steps, then clipping."
+    ),
+    "chosen": (
+        "Gradient clipping controls the spike produced during backpropagation. "
+        "By the chain rule, propagating derivatives through successive layers "
+        "or unrolled time steps multiplies local derivatives (Jacobians). "
+        "When these products amplify rather than attenuate the signal, the "
+        "computed parameter gradients can become exceptionally large. "
+        "After the backward pass has computed those gradients, global-norm "
+        "clipping scales them down if their combined norm exceeds the limit, "
+        "before the optimizer updates parameters. That limits the spike "
+        "driving the next weight update; clipping does not prevent the "
+        "amplification from occurring during backpropagation."
+    ),
+    "support": {
+        "backprop_computes_gradients": (
+            "the computed parameter gradients can become exceptionally large"
+        ),
+        "clipping_after_backward": (
+            "After the backward pass has computed those gradients, global-norm "
+            "clipping scales them down if their combined norm exceeds the limit, "
+            "before the optimizer updates parameters"
+        ),
+        "next_update_mitigation": (
+            "That limits the spike driving the next weight update"
+        ),
+    },
+    "application": (
+        "When these products amplify rather than attenuate the signal, the "
+        "computed parameter gradients can become exceptionally large"
+    ),
+}
+
 
 def normalize(value: str) -> str:
     return " ".join(str(value).casefold().split())
@@ -650,6 +694,57 @@ def build_pairs() -> tuple[list[dict], list[dict], dict]:
     }
     if {rid for rid in current_by_id if current_by_id[rid] != previous_by_id[rid]} != seen_rewrites:
         raise RuntimeError("Round-three revisions modified unexpected cases")
+    # Immutable round-three snapshot: the third human reviewed exactly these
+    # strings, before the Case 35 correction below. No other row may change.
+    round_3_digest = digest(revised)
+    round_3_evidence_digest = digest(evidence)
+    if round_3_digest != "70796738b3023c243caf5bc678de12f826086008c8a2d6c91d80f91465dfbd7c":
+        raise RuntimeError("Human round-three submitted data drift")
+    if round_3_evidence_digest != "c0c8f20aa5dc787931e165475b090c1f0223d4cb3dc08fa4cc7c67660680a6ab":
+        raise RuntimeError("Human round-three evidence drift")
+    reviewed_by_id = {r["id"]: r["chosen"] for r in revised}
+    reviewed_cases = set()
+    case_35 = None
+    for row, ev in zip(revised, evidence):
+        if "review_round_3_submitted_answer" not in ev:
+            continue
+        case = ev["review_round_1_case_number"]
+        ev["review_round_3_submitted_answer"] = row["chosen"]
+        ev["review_round_3_verdict"] = (
+            "ADEQUATE" if case in REVIEW_ROUND_3_ADEQUATE_CASES
+            else "INADEQUATE" if case in REVIEW_ROUND_3_INADEQUATE_CASES
+            else "ERROR"
+        )
+        if ev["review_round_3_verdict"] == "ERROR":
+            raise RuntimeError("Missing round-three review verdict")
+        ev["review_round_3_status"] = "HUMAN_ROUND_3_REVIEWED"
+        reviewed_cases.add(case)
+        if case == 35:
+            case_35 = (row, ev)
+    if reviewed_cases != {15, 33, 35, 36, 44, 45, 47} or case_35 is None:
+        raise RuntimeError("Third-pass human judgments do not match reviewed cases")
+    row, ev = case_35
+    candidate = ROUND_4_CASE35_CANDIDATE
+    if row["id"] != candidate["id"] or ev["review_round_3_verdict"] != "INADEQUATE":
+        raise RuntimeError("Case 35 correction pointed at wrong row")
+    if set(candidate["support"]) != set(PROPOSITIONS["backprop_stability"]):
+        raise RuntimeError("Case 35 did not satisfy proposition keys")
+    if any(span not in candidate["chosen"] for span in
+           [*candidate["support"].values(), candidate["application"]]):
+        raise RuntimeError("Case 35 evidence not present verbatim in correction")
+    row["chosen"] = candidate["chosen"]
+    ev["review_round_4_reason"] = candidate["reason"]
+    ev["review_round_4_status"] = "AUTHORED_NOT_HUMAN_ADJUDICATED"
+    ev["requirements"] = [
+        {"proposition_id": key, "status": "supported",
+         "evidence": candidate["support"][key],
+         "source": "round_4_case35_source_span_pending_independent_review"}
+        for key in PROPOSITIONS["backprop_stability"]
+    ]
+    ev["contextual_application"] = candidate["application"]
+    if {r["id"] for r in revised
+        if r["chosen"] != reviewed_by_id[r["id"]]} != {candidate["id"]}:
+        raise RuntimeError("Round-four revision affected more than Case 35")
     for new, rec in zip(revised, evidence):
         if not all(part["evidence"] in new["chosen"] for part in rec["requirements"]):
             raise RuntimeError("Incomplete proposition evidence")
@@ -678,6 +773,16 @@ def build_pairs() -> tuple[list[dict], list[dict], dict]:
             ),
             "round_2_causal_sha256": round_2_digest,
             "round_2_evidence_sha256": round_2_evidence_digest,
+            "second_independent_reviewer": "NOT_PERFORMED",
+        },
+        "review_round_3_summary": {
+            "reviewed_cases": [15, 33, 35, 36, 44, 45, 47],
+            "adequate": 6, "inadequate": 1, "uncertain": 0,
+            "round_3_reviewed_causal_sha256": round_3_digest,
+            "round_3_reviewed_evidence_sha256": round_3_evidence_digest,
+            "case_35_round_4_edit_status": "AUTHORED_NOT_HUMAN_ADJUDICATED",
+            "first_reviewer_current_accepted_answers": 79,
+            "human_verification_paused": True,
             "second_independent_reviewer": "NOT_PERFORMED",
         },
         "per_family": dict(Counter(r["semantic_family"] for r in revised)),
@@ -809,8 +914,9 @@ def review_round_3_seven(rows: list[dict], evidence: list[dict]) -> str:
         "Round two accepted 9/10 corrections and rejected Case 15. The reviewer",
         "also flagged prompt-insensitive boilerplate in otherwise adequate",
         "Cases 33, 35, 36, 44, 45 and 47.",
-        "The seven answers below have changed after round-two judgments.",
-        "Previous acceptance does NOT apply to newly changed answer text.",
+        "This is a FROZEN HISTORY of what the user reviewed in round three.",
+        "Six answers were adequate; Case 35 was inadequate and is replaced",
+        "in the currently proposed corpus by an unreviewed fourth-pass answer.",
         "Judge strictly: required mechanism, requested task details, no",
         "factual contradiction; check causal depth and prompt adaptation.",
         "Review: ADEQUATE / INADEQUATE / UNCERTAIN.",
@@ -838,9 +944,11 @@ def review_round_3_seven(rows: list[dict], evidence: list[dict]) -> str:
             "",
             "**Newly proposed answer (round three)**",
             "",
-            row["chosen"],
+            ev["review_round_3_submitted_answer"],
             "",
-            "**Required factual propositions**",
+            "**Human third-pass verdict:** " + ev["review_round_3_verdict"],
+            "",
+            "**Required factual propositions for CURRENT target (may be revised)**",
             "",
         ])
         for item in ev["requirements"]:
@@ -854,6 +962,55 @@ def review_round_3_seven(rows: list[dict], evidence: list[dict]) -> str:
         ])
     if sorted(seen) != [15, 33, 35, 36, 44, 45, 47]:
         raise RuntimeError("Round-three review packet must hold exactly seven cases")
+    return "\n".join(lines)
+
+
+
+def case35_final_candidate_packet(rows: list[dict], evidence: list[dict]) -> str:
+    """Final author rewrite: for the audit record, not a request for user review."""
+    selected = [
+        (row, ev) for row, ev in zip(rows, evidence)
+        if ev["review_round_1_case_number"] == 35
+    ]
+    if len(selected) != 1:
+        raise RuntimeError("Expected exactly one Case 35")
+    row, ev = selected[0]
+    if ev.get("review_round_4_status") != "AUTHORED_NOT_HUMAN_ADJUDICATED":
+        raise RuntimeError("Case 35 is incorrectly marked reviewed")
+    lines = [
+        "# v14a14 — final proposed correction to Case 35",
+        "",
+        "The third human review accepted six of seven cases and rejected Case 35.",
+        "Human verification is paused after this authored change. Do not",
+        "interpret this latest correction as independently approved.",
+        "",
+        "**Question (unchanged)**",
+        "",
+        row["prompt"],
+        "",
+        "**Rejected third-pass target**",
+        "",
+        ev["review_round_3_submitted_answer"],
+        "",
+        "**Updated proposed training target**",
+        "",
+        row["chosen"],
+        "",
+        "**Why this revision is different**",
+        "",
+        ev["review_round_4_reason"],
+        "",
+        "**Required propositions**",
+        "",
+    ]
+    for req in ev["requirements"]:
+        lines.append(f"- {req['proposition_id']}: {req['evidence']}")
+    lines.extend([
+        "",
+        "Status: authored correction; no fourth human verdict; second independent",
+        "reviewer not performed; training gate remains closed.",
+        "",
+    ])
     return "\n".join(lines)
 
 
@@ -879,6 +1036,9 @@ def main() -> None:
     )
     (args.output_dir / "v14a14_round3_seven_rewrites.md").write_text(
         review_round_3_seven(b, audit["evidence"]), encoding="utf-8",
+    )
+    (args.output_dir / "v14a14_case35_final_candidate.md").write_text(
+        case35_final_candidate_packet(b, audit["evidence"]), encoding="utf-8",
     )
     (args.output_dir / "review_attestation_template.json").write_text(
         json.dumps({
