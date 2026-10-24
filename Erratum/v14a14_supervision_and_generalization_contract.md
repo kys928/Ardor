@@ -93,3 +93,15 @@ Strong source-integrity requirements:
 4. The original control, all 80 prompt texts, and all 28 blind evaluation references remain unchanged.
 
 The third-pass targeted review packet is **v14a14_round3_seven_rewrites.md**. The round-two review packet remains an archival snapshot showing the exact responses judged (not the currently rewritten answers). The export code, pinned CUDA preflight and all 10 CPU tests passed. **No actual CUDA training or checkpoint promotion has occurred.** Two genuine independent reviewers and final adjudication remain necessary before training is enabled.
+
+## Human review paused following the Case 35 final adjustment — 24 October 2026
+
+The third human round adjudicated Cases 15, 33, 35, 36, 44, 45, 47: **six adequate, one inadequate (Case 35)**, with no uncertainty and no identified material factual contradictions.
+
+Case 35 was incomplete because its prompt called for the origin of a backpropagated spike, while the answer had focused primarily on the clipping intervention. The latest authored correction explicitly explains chain-rule multiplication of local derivatives/Jacobians through layers or unrolled time steps, noting amplification is conditional, and explains global-norm clipping after backpropagation and before the optimizer update.
+
+The builder verifies the exact frozen third-review training-data digest `70796738b3023c243caf5bc678de12f826086008c8a2d6c91d80f91465dfbd7c` and evidence digest `c0c8f20aa5dc787931e165475b090c1f0223d4cb3dc08fa4cc7c67660680a6ab` before modifying only the Case 35 target. It preserves all prior human scores attached to the exact reviewed answer texts and does not mark the new Case 35 text human-approved.
+
+Current fourth-pass candidate SHA-256: `08f95290f2a49d0f8bd01fdd45389c9a3dd53639a6c6120b7938878b726423d6`; current proposition evidence SHA-256: `825fee6e29fbbb2fa57539f0d0afb4bea72bb3ab0d136884e048cc437e961821`. All 80 prompts, original control, and the 28 frozen holdout examples retain the same fingerprints.
+
+**Human review is paused at the user's request.** The current corpus contains 79 answers accepted by the first human reviewer in the exact current versions, and one author-corrected answer (Case 35) not yet re-adjudicated. A second genuinely independent reviewer has not signed off. CPU tests and the authoring provenance are not substitutes for this missing review. The GPU training gate and checkpoint-promotion gate remain closed.
