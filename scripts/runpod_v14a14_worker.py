@@ -28,7 +28,8 @@ def run() -> int:
         raise ValueError("No arbitrary training options allowed in v14a14 GPU experiment")
     run_dir = shared.CONTROL_ROOT / job_id / control_run_id
     run_dir.mkdir(parents=True, exist_ok=True)
-    log_file = run_dir / "worker.log"
+    log_file = run_dir / "train.log"
+    review_log_file = run_dir / "blind_packet.log"
     status = run_dir / "status.json"
     output = (
         shared.PERSISTENT_ROOT / "training/runs"
@@ -63,13 +64,14 @@ def run() -> int:
             "--run-dir", str(output),
         ]
         # Human review is independent and not scored on the GPU worker.
-        review_rc = shared.run_subprocess(review_command, log_file)
+        review_rc = shared.run_subprocess(review_command, review_log_file)
         completed = {
             **started,
             "state": "completed" if review_rc == 0 else "failed",
             "returncode": review_rc,
             "completed_at": shared.utc_now(),
             "log_path": str(log_file),
+            "blind_packet_log_path": str(review_log_file),
             "result_path": str(output / "v14a14_posttraining_diagnostic.json"),
             "candidate_manifest_path": str(
                 output / "causal_80/candidate/v14a14_causal_u0040_candidate.manifest.json"
