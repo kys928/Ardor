@@ -129,6 +129,7 @@ def snapshot(
 def run_one_arm(
     *, arm_name: str, target_rows, target_holdout, tok,
     history, eval_args, special, args, output_dir,
+    candidate_checkpoint_hook=None,
 ) -> dict[str, Any]:
     if arm_name not in ARMS:
         raise ValueError("Unknown EOS ablation arm")
@@ -238,6 +239,18 @@ def run_one_arm(
         "original_chosen_text_unchanged": True,
         "checkpoints_saved": False,
     }
+    # v14a14-only optional research candidate hook: defaults to NO save,
+    # preserving all historical v14a10 callers and numerical training steps.
+    # Run only after the full u40 evaluation while weights still exist.
+    if candidate_checkpoint_hook is not None:
+        info = candidate_checkpoint_hook(
+            model=model, optimizer=optimizer, arm_name=arm_name,
+            arm_dir=arm_dir, result=result, args=args,
+        )
+        if not isinstance(info, dict):
+            raise RuntimeError("Candidate hook must return an audit dict")
+        result["candidate_checkpoint"] = info
+        result["checkpoints_saved"] = True
     prev.write_json(arm_dir / "arm_result.json", result)
     del optimizer, model
     gc.collect()
