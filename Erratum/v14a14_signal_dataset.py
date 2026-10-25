@@ -1021,14 +1021,14 @@ def case35_final_candidate_packet(rows: list[dict], evidence: list[dict]) -> str
     if len(selected) != 1:
         raise RuntimeError("Expected exactly one Case 35")
     row, ev = selected[0]
-    if ev.get("review_round_4_status") != "AUTHORED_NOT_HUMAN_ADJUDICATED":
-        raise RuntimeError("Case 35 is incorrectly marked reviewed")
+    if ev.get("review_round_4_status") != "USER_ADJUDICATED_ADEQUATE":
+        raise RuntimeError("Case 35 latest user verdict not recorded")
     lines = [
-        "# v14a14 — final proposed correction to Case 35",
+        "# v14a14 — final accepted correction to Case 35",
         "",
         "The third human review accepted six of seven cases and rejected Case 35.",
-        "Human verification is paused after this authored change. Do not",
-        "interpret this latest correction as independently approved.",
+        "The user has now marked the revised current Case 35 ADEQUATE.",
+        "The separate second-independent-review requirement is still pending.",
         "",
         "**Question (unchanged)**",
         "",
@@ -1053,7 +1053,7 @@ def case35_final_candidate_packet(rows: list[dict], evidence: list[dict]) -> str
         lines.append(f"- {req['proposition_id']}: {req['evidence']}")
     lines.extend([
         "",
-        "Status: authored correction; no fourth human verdict; second independent",
+        "Status: user first-review ADEQUATE (80/80 overall); second independent",
         "reviewer not performed; training gate remains closed.",
         "",
     ])
@@ -1101,9 +1101,11 @@ def main() -> None:
             "resolved_disagreements": False,
             "round_1_original_adequate": 70,
             "round_1_original_inadequate": 10,
-            "round_1_revised_case_numbers_pending_recheck": list(REVIEW_ROUND_1_INADEQUATE_CASES),
+            "round_1_original_inadequate_case_numbers_historic": list(REVIEW_ROUND_1_INADEQUATE_CASES),
             "round_4_case_35_review": "USER_ADJUDICATED_ADEQUATE",
-            "round_3_revised_case_numbers_pending_recheck": sorted(x["case"] for x in ROUND_3_TARGETED_REWRITES.values()),
+            "round_3_historic_revised_case_numbers": sorted(x["case"] for x in ROUND_3_TARGETED_REWRITES.values()),
+            "first_user_review_80_accepted": True,
+            "second_independent_review": "PENDING",
             "revised_10_independent_review_pending": True,
         }, sort_keys=True, indent=2) + "\n", encoding="utf-8",
     )
