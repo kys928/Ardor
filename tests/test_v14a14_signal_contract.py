@@ -171,6 +171,32 @@ class NewSupervisionContract(unittest.TestCase):
             self.assertTrue(pair[0]["chosen"].startswith("Gradient clipping"))
 
 
+    def test_first_user_review_covers_all_current_answer_hashes(self):
+        import hashlib
+        source = self.audit["manifest"]["first_user_review_current"]
+        self.assertEqual(source["adequate"], 80)
+        self.assertEqual(source["inadequate"], 0)
+        self.assertEqual(source["uncertain"], 0)
+        self.assertEqual(source["reviewer_count"], 1)
+        self.assertEqual(source["second_independent_reviewer_status"], "NOT_PERFORMED")
+        self.assertFalse(source["training_eligible"])
+        self.assertEqual(source["case_35_latest_status"], "USER_ADJUDICATED_ADEQUATE")
+        record = source["review_ledger"]
+        self.assertEqual(len(record), 80)
+        self.assertEqual(len({r["id"] for r in record}), 80)
+        self.assertEqual(source["review_ledger_sha256"], digest(record))
+        for row, ev, item in zip(self.revised, self.audit["evidence"], record):
+            self.assertEqual(item["id"], row["id"])
+            self.assertEqual(item["case_number"], ev["review_round_1_case_number"])
+            self.assertEqual(item["verdict"], "ADEQUATE")
+            self.assertEqual(item["answer_sha256"],
+                             hashlib.sha256(row["chosen"].encode("utf-8")).hexdigest())
+            self.assertEqual(ev["first_user_review_current_answer_verdict"], "ADEQUATE")
+        case35 = next(e for e in self.audit["evidence"]
+                      if e["review_round_1_case_number"] == 35)
+        self.assertEqual(case35["review_round_4_status"], "USER_ADJUDICATED_ADEQUATE")
+        self.assertEqual(case35["first_user_review_source_round"], "round_4_user_verdict")
+
     def test_branches_are_diagnostics_only(self):
         self.assertEqual(self.audit["manifest"]["status"], "DRAFT_NOT_TRAINING_APPROVED")
         self.assertTrue(self.holdout_manifest["not_seen_by_model_or_optimizer"])
