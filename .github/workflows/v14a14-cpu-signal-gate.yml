@@ -17,6 +17,8 @@ jobs:
           python-version: "3.11"
       - name: Run v14a14 CPU-only source and factual-evidence contract tests
         run: python -m unittest discover -s tests -p 'test_v14a14_signal_contract.py' -v
+      - name: Test blinded promotion pass, failure and tamper gates (synthetic only)
+        run: python -m unittest discover -s tests -p 'test_v14a14_promotion_gate.py' -v
       - name: Export matched 80-row training arms and audit
         run: python -m Erratum.v14a14_signal_dataset --output-dir v14a14_signal_output
       - name: Freeze unseen 28-row holdout and its manifest
