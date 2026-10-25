@@ -105,3 +105,25 @@ The builder verifies the exact frozen third-review training-data digest `7079673
 Current fourth-pass candidate SHA-256: `08f95290f2a49d0f8bd01fdd45389c9a3dd53639a6c6120b7938878b726423d6`; current proposition evidence SHA-256: `825fee6e29fbbb2fa57539f0d0afb4bea72bb3ab0d136884e048cc437e961821`. All 80 prompts, original control, and the 28 frozen holdout examples retain the same fingerprints.
 
 **Human review is paused at the user's request.** The current corpus contains 79 answers accepted by the first human reviewer in the exact current versions, and one author-corrected answer (Case 35) not yet re-adjudicated. A second genuinely independent reviewer has not signed off. CPU tests and the authoring provenance are not substitutes for this missing review. The GPU training gate and checkpoint-promotion gate remain closed.
+
+## 2026-10-25: All 80 answers accepted by the first user reviewer; controlled-experiment status
+
+The user has explicitly judged the *current final Case 35 answer* **ADEQUATE**. This completes the first reviewer’s assessment of all **80/80 active revised answers**, with no outstanding first-review rejections. The current target texts remain **byte-for-byte unchanged** from the final fourth-pass candidate.
+
+The dataset builder records a row-ID / case-number / current answer SHA-256 ledger of the 80 accepted answers, including which historical adjudication round supports each judgment. Every record is checked against its current chosen-answer SHA-256 in the CPU tests. The latest supervision corpus still has 80 distinct prompts and 66 distinct final-answer strings.
+
+Data and evaluation integrity:
+- Original control 80-row digest: `09341553fb2b689c244e52ec47c6cdc736c964ca68d8ea61843cf5eb7f92745d`
+- Final revised 80-row digest: `08f95290f2a49d0f8bd01fdd45389c9a3dd53639a6c6120b7938878b726423d6`
+- Updated proposition/first-review evidence digest: `854d13cd860961de6a631a12d41a447301c3dbea812d40ed1cf00b47a877015b`
+- Frozen 80-prompt sequence: `b94c802089c466d3fc64f1b0ba0274d4fa032c44da3c8fc4a9b5a56a41422627`
+- Frozen 28-case holdout prompt digest: `cb1b0a03e139039fc1a4e0301f6e62f1a6b298e9920f7e9a944d7745a5c4a589`
+- Frozen 28-case holdout full reference digest: `9e1b57a09804cea5c3d4ee6fb505c68c220c6925868939e19814b44d3ee81220`
+
+The GitHub CPU-only preflight passes **11 tests** and validates these frozen hashes. It does **not** train a model.
+
+**Scientifically important distinction:** This is **one reviewer** accepting 80 examples, **not** two independent reviewers. The existing CUDA runner deliberately requires two distinct full-corpus human attestations before starting. We have not supplied or fabricated the second approval, nor weakened the gate. The documented outcome of first-review completion is improved dataset readiness, not permission to promote or train.
+
+The next controlled-run decisions are (1) maintain the two-review pretraining gate or explicitly document any diagnostic-only amendment, (2) confirm available GPU deployment and canonical parent/tokenizer files on mounted storage, (3) obtain identical sampled case-ID sequences and initial canonical parent fingerprints, (4) run the 40-update original_80 versus causal_80 matched arms with one EOS token supervised on each answer, and (5) independently score **both** arms’ 28 new generations under the frozen factual rubric before comparing against the precommitted gates. EOS termination, trigram repetition, teacher-forced NLL/top1, and factual adequacy must be reported separately.
+
+No GPU training, external RunPod launch, checkpoint promotion or merge was performed during the present preparation.
