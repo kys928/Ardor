@@ -745,6 +745,41 @@ def build_pairs() -> tuple[list[dict], list[dict], dict]:
     if {r["id"] for r in revised
         if r["chosen"] != reviewed_by_id[r["id"]]} != {candidate["id"]}:
         raise RuntimeError("Round-four revision affected more than Case 35")
+    # The user has now personally adjudicated the *current* final Case 35
+    # answer adequate, completing first-review coverage of the 80 active
+    # answers. This is one reviewer, not the two independent attestations
+    # required by the training runner.
+    ev["review_round_4_status"] = "USER_ADJUDICATED_ADEQUATE"
+    ev["review_round_4_verdict"] = "ADEQUATE"
+    ev["review_round_4_scope"] = "current_case35_chosen_text_only"
+    first_review_records = []
+    for row, review in zip(revised, evidence):
+        case_number = review["review_round_1_case_number"]
+        if case_number == 35:
+            accepted_source = "round_4_user_verdict"
+        elif case_number in REVIEW_ROUND_3_ADEQUATE_CASES:
+            accepted_source = "round_3_user_verdict"
+        elif case_number in (9, 14, 24):
+            accepted_source = "round_2_user_verdict"
+        elif case_number in REVIEW_ROUND_1_INADEQUATE_CASES:
+            raise RuntimeError(f"Unhandled repair review: {case_number}")
+        else:
+            accepted_source = "round_1_user_verdict"
+        review["first_user_review_current_answer_verdict"] = "ADEQUATE"
+        review["first_user_review_current_answer_sha256"] = hashlib.sha256(
+            row["chosen"].encode("utf-8")
+        ).hexdigest()
+        review["first_user_review_source_round"] = accepted_source
+        first_review_records.append({
+            "case_number": case_number,
+            "id": row["id"],
+            "verdict": "ADEQUATE",
+            "answer_sha256": review["first_user_review_current_answer_sha256"],
+            "source_round": accepted_source,
+        })
+    if len(first_review_records) != 80 or len({r["id"] for r in first_review_records}) != 80:
+        raise RuntimeError("First reviewer acceptance not aligned to all 80 current targets")
+    first_review_digest = digest(first_review_records)
     for new, rec in zip(revised, evidence):
         if not all(part["evidence"] in new["chosen"] for part in rec["requirements"]):
             raise RuntimeError("Incomplete proposition evidence")
@@ -784,6 +819,17 @@ def build_pairs() -> tuple[list[dict], list[dict], dict]:
             "first_reviewer_current_accepted_answers": 79,
             "human_verification_paused": True,
             "second_independent_reviewer": "NOT_PERFORMED",
+        },
+        "first_user_review_current": {
+            "adequate": 80,
+            "inadequate": 0,
+            "uncertain": 0,
+            "case_35_latest_status": "USER_ADJUDICATED_ADEQUATE",
+            "reviewer_count": 1,
+            "second_independent_reviewer_status": "NOT_PERFORMED",
+            "review_ledger_sha256": first_review_digest,
+            "review_ledger": first_review_records,
+            "training_eligible": False,
         },
         "per_family": dict(Counter(r["semantic_family"] for r in revised)),
         "origin_counts": dict(Counter(r["data_origin"] for r in revised)),
@@ -1056,9 +1102,22 @@ def main() -> None:
             "round_1_original_adequate": 70,
             "round_1_original_inadequate": 10,
             "round_1_revised_case_numbers_pending_recheck": list(REVIEW_ROUND_1_INADEQUATE_CASES),
+            "round_4_case_35_review": "USER_ADJUDICATED_ADEQUATE",
             "round_3_revised_case_numbers_pending_recheck": sorted(x["case"] for x in ROUND_3_TARGETED_REWRITES.values()),
             "revised_10_independent_review_pending": True,
         }, sort_keys=True, indent=2) + "\n", encoding="utf-8",
+    )
+    (args.output_dir / "first_user_review_80_ledger.json").write_text(
+        json.dumps({
+            "schema": "v14a14_first_user_review_full_corpus",
+            "training_dataset_sha256": audit["manifest"]["revised_sha256"],
+            "review_ledger_sha256": audit["manifest"]["first_user_review_current"]["review_ledger_sha256"],
+            "results": audit["manifest"]["first_user_review_current"]["review_ledger"],
+            "first_reviewer_adequate": 80,
+            "second_independent_reviewer": "NOT_PERFORMED",
+            "training_eligible": False,
+        }, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
     )
     (args.output_dir / "training_manifest.json").write_text(
         json.dumps(audit["manifest"], ensure_ascii=False, sort_keys=True, indent=2) + "\n",
