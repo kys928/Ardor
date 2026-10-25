@@ -1,0 +1,4 @@
+v14a14 controlled diagnostic dispatch trigger
+Date: 2026-10-25
+Authorized: matched 80x80 one-review CPU-verified diagnostic, cost-capped.
+No unreviewed checkpoint promotion; candidate save allowed; all frozen metrics must pass.

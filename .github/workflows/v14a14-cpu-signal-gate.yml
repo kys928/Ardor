@@ -1,0 +1,44 @@
+name: v14a14 CPU data and holdout gate
+on:
+  push:
+    branches:
+      - research/v14a14-strong-signal-20261023
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Run v14a14 CPU-only source and factual-evidence contract tests
+        run: python -m unittest discover -s tests -p 'test_v14a14_signal_contract.py' -v
+      - name: Test blinded promotion pass, failure and tamper gates (synthetic only)
+        run: python -m unittest discover -s tests -p 'test_v14a14_promotion_gate.py' -v
+      - name: Export matched 80-row training arms and audit
+        run: python -m Erratum.v14a14_signal_dataset --output-dir v14a14_signal_output
+      - name: Freeze unseen 28-row holdout and its manifest
+        run: python -m Erratum.v14a14_blind_panel --output-dir v14a14_signal_output
+      - name: Verify pinned controlled-run preflight (without loading any model)
+        run: python -m Erratum.v14a14_controlled_eos_train --preflight-only
+      - name: Show only digest and counts, never reveal the blind prompts in logs
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d = Path('v14a14_signal_output')
+          for path in ('training_manifest.json', 'blind_panel_manifest.json'):
+              obj = json.loads((d/path).read_text())
+              print(path, json.dumps({k:v for k,v in obj.items() if 'sha256' in k or k in
+                    ('train_cases','holdout_n','per_family','holdout_per_family','status',
+                     'training_eligible','distinct_prompts','distinct_revised_answers')},sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v14a14-signal-audit-and-blind-panel
+          path: v14a14_signal_output/
+          retention-days: 30

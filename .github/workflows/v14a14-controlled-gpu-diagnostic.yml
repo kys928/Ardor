@@ -1,0 +1,91 @@
+name: v14a14 controlled 80x80 GPU diagnostic
+
+on:
+  push:
+    branches:
+      - research/v14a14-strong-signal-20261023
+    paths:
+      - 'Erratum/triggers/v14a14-controlled-launch-20261025.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  actions: read
+
+concurrency:
+  group: v14a14-controlled-diagnostic-single-launch
+  cancel-in-progress: false
+
+jobs:
+  pin-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Verify immutable training and holdout fingerprints
+        run: |
+          python -m unittest discover -s tests -p 'test_v14a14_signal_contract.py' -v
+          python -m unittest discover -s tests -p 'test_v14a14_promotion_gate.py' -v
+          python -m Erratum.v14a14_controlled_eos_train --preflight-only
+
+  build-exact-image:
+    needs: pin-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - name: Authenticate to GHCR for immutable research commit image
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build exact v14a14 branch image, without overwriting latest
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/runpod-agent.Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/ardor-runpod:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  diagnostic:
+    needs: build-exact-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+      RUNPOD_S3_ACCESS_KEY_ID: ${{ secrets.RUNPOD_S3_ACCESS_KEY_ID }}
+      RUNPOD_S3_SECRET_ACCESS_KEY: ${{ secrets.RUNPOD_S3_SECRET_ACCESS_KEY }}
+      RUNPOD_NETWORK_VOLUME_ID: ${{ vars.RUNPOD_NETWORK_VOLUME_ID }}
+      RUNPOD_DATACENTER_ID: ${{ vars.RUNPOD_DATACENTER_ID }}
+      RUNPOD_S3_ENDPOINT: ${{ vars.RUNPOD_S3_ENDPOINT }}
+      RUNPOD_ALLOWED_GPU_TYPES: ${{ vars.RUNPOD_ALLOWED_GPU_TYPES }}
+      RUNPOD_MAX_HOURLY_USD: ${{ vars.RUNPOD_MAX_HOURLY_USD }}
+      RUNPOD_MAX_RUNTIME_MINUTES: ${{ vars.RUNPOD_MAX_RUNTIME_MINUTES }}
+      RUNPOD_STATUS_POLL_SECONDS: ${{ vars.RUNPOD_STATUS_POLL_SECONDS }}
+      RUNPOD_IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/ardor-runpod:sha-${{ github.sha }}
+      RUNPOD_TEMPLATE_ID: ''
+      RUNPOD_CONTAINER_REGISTRY_AUTH_ID: ${{ vars.RUNPOD_CONTAINER_REGISTRY_AUTH_ID }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Install restricted control-plane dependency
+        run: python -m pip install --disable-pip-version-check boto3
+      - name: Launch capped attached fixed-purpose v14a14 research diagnostic
+        run: |
+          PYTHONPATH=scripts python scripts/runpod_control_entry.py execute \
+            --job runpod/jobs/ardor-v14a14-stronger-supervision-u40-20261025.json
+      - name: Confirm no unconditional promotion exists
+        if: always()
+        run: |
+          echo "Only a SHA-verified causal-arm candidate is retained."
+          echo "Promotion requires separate frozen blind 56-output human evidence."

@@ -1,0 +1,1 @@
+Read-only retrieval of finished v14a14 exact RunPod S3 artifacts for blind factual adjudication. No compute, no training, no promotion.
