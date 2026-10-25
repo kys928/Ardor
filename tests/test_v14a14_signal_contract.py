@@ -11,7 +11,7 @@ from Erratum.v14a14_signal_dataset import (
     review_only_amended_ten, review_round_3_seven, ROUND_3_TARGETED_REWRITES,
 )
 from Erratum.v14a14_blind_panel import build_holdout
-from Erratum.v14a14_controlled_eos_train import PIN, preflight, verify_data_review
+from Erratum.v14a14_controlled_eos_train import PIN, preflight, verify_data_review, verify_single_user_review
 from Erratum.v14a13_proposition_evaluator import PROPOSITIONS, applicable
 
 
@@ -88,6 +88,23 @@ class NewSupervisionContract(unittest.TestCase):
         self.assertEqual(len(old), 80)
         self.assertEqual(len(new), 80)
         self.assertEqual(len(panel), 28)
+
+    def test_authorized_one_review_diagnostic_verifies_existing_user_ledger(self):
+        summary = self.audit["manifest"]
+        status = verify_single_user_review(self.revised, summary)
+        self.assertEqual(status["first_user_approved"], 80)
+        self.assertEqual(status["policy"], "one_user_reviewer_diagnostic_exception")
+        self.assertEqual(status["independent_second_review"], "NOT_PERFORMED")
+        self.assertTrue(status["no_auto_promotion"])
+        import copy
+        changed = copy.deepcopy(self.revised)
+        changed[34]["chosen"] += " fabricated change"
+        with self.assertRaises(ValueError):
+            verify_single_user_review(changed, summary)
+        corrupt = copy.deepcopy(summary)
+        corrupt["first_user_review_current"]["reviewer_count"] = 2
+        with self.assertRaises(ValueError):
+            verify_single_user_review(self.revised, corrupt)
 
     def test_unsigned_attestation_blocks_training(self):
         ids = [r["id"] for r in self.revised]
