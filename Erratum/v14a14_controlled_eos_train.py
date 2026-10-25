@@ -11,11 +11,13 @@ requires explicit data-review certification and a separate CUDA operator run.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
-from Erratum.v14a14_signal_dataset import build_pairs
+from Erratum.v14a14_signal_dataset import build_pairs, digest
 from Erratum.v14a14_blind_panel import build_holdout
 
 PIN = {
@@ -84,6 +86,100 @@ def verify_data_review(approval_path: Path, row_ids: list[str]) -> dict:
     return document
 
 
+def verify_single_user_review(causal_rows: list[dict], manifest: dict) -> dict:
+    """Use the first review truthfully; do NOT synthesize an independent second."""
+    info = manifest.get("first_user_review_current", {})
+    ledger = info.get("review_ledger", [])
+    if info.get("adequate") != 80 or info.get("reviewer_count") != 1:
+        raise ValueError("Not all 80 answers have one documented user review")
+    if info.get("second_independent_reviewer_status") != "NOT_PERFORMED":
+        raise ValueError("Unexpected review state; manual contract reconciliation needed")
+    if len(ledger) != 80 or digest(ledger) != info.get("review_ledger_sha256"):
+        raise ValueError("First-review ledger missing or changed")
+    for row, judged in zip(causal_rows, ledger):
+        actual = hashlib.sha256(row["chosen"].encode("utf-8")).hexdigest()
+        if row["id"] != judged.get("id") or judged.get("answer_sha256") != actual:
+            raise ValueError("Reviewed answer differs from the current training target")
+        if judged.get("verdict") != "ADEQUATE":
+            raise ValueError("Unapproved current target")
+    return {
+        "policy": "one_user_reviewer_diagnostic_exception",
+        "first_user_approved": len(ledger),
+        "independent_second_review": "NOT_PERFORMED",
+        "review_ledger_sha256": info["review_ledger_sha256"],
+        "no_auto_promotion": True,
+    }
+
+
+def candidate_checkpoint_hook(*, model, optimizer, arm_name: str,
+                              arm_dir: Path, result: dict, args,
+                              pinned: dict, review: dict) -> dict:
+    """Retain a reproducible candidate, never overwrite the canonical parent.
+
+    Uses exact model/optimizer/meta wrapper verified in canonical_eval_v14a2;
+    stage and provenance declare this *not* an already-promoted checkpoint.
+    """
+    import torch
+    from Erratum import ardor_v14a4_family_balanced_trainer as base
+
+    if arm_name != "explicit_eos" or arm_dir.name != "explicit_eos":
+        raise RuntimeError("Candidate saving is permitted only for explicit EOS")
+    if result["steps"] != 40 or result["checkpoints_saved"]:
+        raise RuntimeError("Cannot capture incomplete or previously saved training")
+    root = arm_dir.parent
+    path = root / "candidate" / "v14a14_causal_u0040_candidate.pt"
+    if path.exists():
+        raise RuntimeError(f"Refusing overwrite of existing candidate: {path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".pt.pending")
+    if temporary.exists():
+        raise RuntimeError("Incomplete candidate save exists; inspect it first")
+    wrapper = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "meta": {
+            "stage": "v14a14_supervision_quality_candidate_NOT_PROMOTED",
+            "step": 40,
+            "trainer": "Erratum/v14a14_controlled_eos_train.py",
+            "model_config": dict(base.MODEL_CONFIG),
+            "canonical_parent": base.canonical_parent_reference(),
+            "tokenizer_contract": {
+                "path": str(base.TOKENIZER_PATH),
+                "vocab_size": base.EXPECTED_VOCAB_SIZE,
+                "special_ids": dict(base.EXPECTED_SPECIAL_IDS),
+            },
+            "objective": {
+                "masked_answer_ce": True,
+                "one_supervised_eos_label_per_answer": True,
+                "loss_variant": "v14a10_explicit_eos",
+            },
+            "training_provenance": {
+                "dataset_pins": pinned, "review": review,
+                "seed": args.seed, "steps": 40,
+                "source_arm": "causal_80",
+            },
+            "promotion": {"status": "CANDIDATE_ONLY",
+                          "requires_frozen_28_case_evaluation": True},
+        },
+    }
+    try:
+        torch.save(wrapper, str(temporary))
+        with temporary.open("rb") as handle:
+            os.fsync(handle.fileno())
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    file_sha256 = base.sha256_file(path)
+    record = {
+        "path": str(path), "sha256": file_sha256,
+        "size_bytes": path.stat().st_size,
+        "schema": "model/optimizer/meta",
+        "status": "CANDIDATE_NOT_PROMOTED",
+    }
+    base.write_json(path.with_suffix(".manifest.json"), record)
+    return record
+
+
 def run(args) -> None:
     original, corrected, holdout, pins = preflight()
     if args.preflight_only:
@@ -91,10 +187,22 @@ def run(args) -> None:
                           "train_rows": 80, "holdout_rows": 28,
                           "pins": pins, "success_gate": PROMOTION_CRITERIA}, sort_keys=True))
         return
-    if not args.review_attestation:
-        raise ValueError("Training disabled until --review-attestation for all 80 rows")
-    reviewer_data = verify_data_review(Path(args.review_attestation),
-                                       [r["id"] for r in original])
+    # User-authorized one-review diagnostic exception. Never impersonate the
+    # second reviewer; all other canonical/data/evaluation gates stay intact.
+    _, _, first_review_manifest = build_pairs()
+    first_review = verify_single_user_review(corrected, first_review_manifest["manifest"])
+    if args.one_review_diagnostic:
+        review = first_review
+    else:
+        if not args.review_attestation:
+            raise ValueError("Two independent reviewers required without --one-review-diagnostic")
+        reviewer_data = verify_data_review(Path(args.review_attestation),
+                                           [r["id"] for r in original])
+        review = {
+            "policy": "two_independent_reviewers",
+            "reviewer_ids": [r["reviewer_id"] for r in reviewer_data["reviewers"]],
+            "first_review_ledger_sha256": first_review["review_ledger_sha256"],
+        }
 
     import torch
     from tokenizers import Tokenizer
@@ -155,14 +263,15 @@ def run(args) -> None:
     root = Path(args.output_dir)
     root.mkdir(parents=True, exist_ok=True)
     prev.write_json(root / "v14a14_frozen_experiment.json", {
-        "pins": pins, "reviewer_ids": [r["reviewer_id"] for r in reviewer_data["reviewers"]],
+        "pins": pins, "review": review,
         "retention": PROMOTION_CRITERIA, "arms": ["original_80", "causal_80"],
         "same_train_prompts": True, "same_seed": args.seed,
         "target_token_exposure_per_single_dataset_pass": token_exposure,
         "eos_one_token_per_answer": True, "steps_each": eos.TOTAL_UPDATES,
         "control_original_v14a4_answers_60_and_cue_matched_legacy_answers_20": True,
         "heldout_seen_during_training": False, "checkpoint_saved": False,
-        "promotion_eligible_without_external_human_eval": False,
+        "promotion_policy": "eligible_if_frozen_evaluation_gates_pass",
+        "automatic_promotion": False,
     })
     results = {}
     for label, rows in (("original_80", original), ("causal_80", corrected)):
@@ -170,6 +279,10 @@ def run(args) -> None:
             arm_name="explicit_eos", target_rows=rows, target_holdout=holdout,
             tok=tok, history=history, eval_args=eval_args, special=special,
             args=args, output_dir=root / label,
+            candidate_checkpoint_hook=(
+                (lambda **kw: candidate_checkpoint_hook(**kw, pinned=pins, review=review))
+                if label == "causal_80" else None
+            ),
         )
     if results["original_80"]["batch_sequence_ids"] != results["causal_80"]["batch_sequence_ids"]:
         raise RuntimeError("Batch IDs differ across arms")
@@ -180,9 +293,11 @@ def run(args) -> None:
         },
         "matched_batch_order": True,
         "factual_adequacy": "PENDING_BLIND_HUMAN_ADJUDICATION",
-        "promotion_attempted": False, "checkpoint_saved": False,
+        "promotion_attempted": False,
+        "candidate_retained": bool(results["causal_80"].get("candidate_checkpoint")),
+        "promotion_policy": "frozen_evaluation_gate_required",
     })
-    print("[done] matched EOS diagnostic; promotion prohibited; human assessment pending", flush=True)
+    print("[done] matched EOS diagnostic; candidate retained; promotion requires evidence gate", flush=True)
 
 
 def build_argparser() -> argparse.ArgumentParser:
@@ -199,7 +314,9 @@ def build_argparser() -> argparse.ArgumentParser:
         return parser
     from Erratum import ardor_v14a10_eos_supervision_ablation as eos
     parser = eos.build_argparser()
-    parser.add_argument("--review-attestation", type=str, required=True)
+    parser.add_argument("--review-attestation", type=str, default=None)
+    parser.add_argument("--one-review-diagnostic", action="store_true",
+                        help="User-authorized diagnostic exception; single reviewed ledger; never fake a second reviewer")
     parser.set_defaults(output_dir="/workspace/Ardor/training/runs/v14a14_strong_supervision_eos_u40",
                         preflight_only=False)
     return parser
